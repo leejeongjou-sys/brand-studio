@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brand Studio</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Firebase & App globals (set your own values here or via environment)
+      window.__app_id = "brand-studio";
+      window.__firebase_config = JSON.stringify({
+        // PASTE YOUR FIREBASE CONFIG HERE
+        // apiKey: "...",
+        // authDomain: "...",
+        // projectId: "...",
+        // storageBucket: "...",
+        // messagingSenderId: "...",
+        // appId: "..."
+      });
+      window.__initial_auth_token = "";
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
