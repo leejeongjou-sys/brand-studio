@@ -1686,12 +1686,16 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       let moodRefInputText = "";
       if (moodReferenceImage) {
           moodRefDesc = `
-            MOOD REFERENCE (ART DIRECTION TONE & COLOR GRADING):
+            MOOD REFERENCE (ART DIRECTION + PRODUCT ARRANGEMENT):
             - A [Mood Reference Image] has been provided as the LAST input image.
-            - EXTRACT ONLY the following aesthetic qualities from it: overall color palette, color grading, film/tone character, atmospheric mood, and general lighting softness/contrast feel.
-            - APPLY these qualities as a final post-processing filter on top of all other art direction choices (background, lighting setup, camera, etc. still come from the explicit settings above).
-            - STRICT PROHIBITION: DO NOT copy the subject, composition, framing, props, or literal background of the Mood Reference Image. DO NOT replace the product, background, or camera angle chosen above. The Mood Reference is ONLY for color/tone/atmosphere guidance.`;
-          moodRefInputText = "\n            * The LAST input image is the [Mood Reference Image] — use it ONLY for color palette and tonal mood.";
+            - EXTRACT the following qualities from it:
+              (a) COLOR & TONE: overall color palette, color grading, film/tone character, atmospheric mood, lighting softness/contrast feel.
+              (b) PRODUCT ARRANGEMENT / LAYOUT: the spatial positioning pattern of items in the reference — where items sit relative to each other, their orientation, spacing, overlap, scale relationships, grouping density, alignment (grid/organic/diagonal/clustered/spread), and negative space usage.
+            - APPLY (a) as a final color grading / mood filter on top of the chosen background and lighting settings.
+            - APPLY (b) by arranging the ${isGroup ? `${productCount} user-provided products` : 'product'} in the SAME spatial pattern as the reference. Match the layout structure, not the literal objects.
+            - STRICT PROHIBITION: DO NOT copy the literal products, logos, typography, or subject matter from the Mood Reference. The products in the final image MUST be ONLY the user-provided [Input Image 1${isGroup ? ` through ${productCount}` : ''}]. The reference is a LAYOUT + MOOD guide, NOT a source of products or background content.
+            - If the reference's arrangement style conflicts with the explicit CAMERA ANGLE or BACKGROUND settings, prioritize those explicit settings but preserve the arrangement pattern as closely as possible within them.`;
+          moodRefInputText = `\n            * The LAST input image is the [Mood Reference Image] — use it for color/tonal mood AND product arrangement pattern (NOT for the products themselves).`;
       }
 
       const taskLine = isGroup
@@ -1939,7 +1943,7 @@ ${productRule}
           {/* 5. Mood Reference Image (Optional) */}
           <div className="flex flex-col gap-3">
             <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 무드 레퍼런스 (선택)</h3>
-            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스 이미지의 <b>색감·톤·분위기만</b> 참고합니다. (배경/구도/피사체는 영향 없음)</p>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스 이미지의 <b>색감·톤·분위기 + 제품 배치 레이아웃</b>을 참고합니다. (제품 자체는 원본 업로드 이미지를 사용)</p>
             <div onClick={() => document.getElementById('mood-ref-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'moodRef'); }} className="h-40 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
               {moodReferenceImage ? (
                 <>
