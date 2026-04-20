@@ -1498,7 +1498,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 };
 
 const ProductStudioGenerator = ({ settings, showNotification }) => {
-  const [productImage, setProductImage] = useState(null);
+  const [productImages, setProductImages] = useState([]); // 최대 6장
   const [customBgImage, setCustomBgImage] = useState(null);
   const [moodReferenceImage, setMoodReferenceImage] = useState(null);
 
@@ -1576,12 +1576,32 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     r.onload = async () => {
         try {
             const img = await compressImage(r.result, 1024, 0.8);
-            if (type === 'product') setProductImage(img);
             if (type === 'customBg') setCustomBgImage(img);
             if (type === 'moodRef') setMoodReferenceImage(img);
         } catch { /* ignore */ }
     };
     r.readAsDataURL(file);
+  };
+
+  const handleProductUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    const available = 6 - productImages.length;
+    if (available <= 0) return showNotification("최대 6장까지 업로드 가능합니다.", "error");
+    const toProcess = Array.from(files).slice(0, available);
+    for (const file of toProcess) {
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const img = await compressImage(r.result, 1024, 0.8);
+          setProductImages(prev => prev.length < 6 ? [...prev, img] : prev);
+        } catch { /* ignore */ }
+      };
+      r.readAsDataURL(file);
+    }
+  };
+
+  const removeProductAt = (idx) => {
+    setProductImages(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handleDownloadImage = () => {
@@ -1595,12 +1615,14 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
   };
 
   const handleGenerate = async () => {
-    if (!productImage) return showNotification("제품 원본 이미지를 업로드해주세요.", "error");
+    if (productImages.length === 0) return showNotification("제품 원본 이미지를 최소 1장 업로드해주세요.", "error");
     if (selectedBg === 'custom' && !customBgImage) return showNotification("커스텀 배경 이미지를 업로드해주세요.", "error");
 
     setIsGenerating(true);
     try {
-      const compProduct = await compressImage(productImage, 1024, 0.8);
+      const compProducts = await Promise.all(productImages.map(img => compressImage(img, 1024, 0.8)));
+      const isGroup = compProducts.length > 1;
+      const productCount = compProducts.length;
 
       let bgDesc = "";
       if (selectedBg === 'whiteboard') bgDesc = "clean studio whiteboard background, pure white, infinite white seamless backdrop";
@@ -1672,19 +1694,37 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
           moodRefInputText = "\n            * The LAST input image is the [Mood Reference Image] — use it ONLY for color palette and tonal mood.";
       }
 
-      const parts = [
-        { text: `
-            TASK: Pure Product Photography (Flat-Lay Setup).
+      const taskLine = isGroup
+        ? `Group Product Photography (Flat-Lay GROUP composition of ${productCount} separate products in ONE single image).`
+        : `Pure Product Photography (Flat-Lay Setup).`;
 
-            CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT.
-            CRITICAL RULE 2: SCENE SETUP - The product is lying completely FLAT on the selected background surface.
-            CRITICAL RULE 3: STRICT LIGHTING PHYSICS - Shadows MUST obey the Lighting Direction exactly. Look at the LIGHTING DIRECTION section and force the shadows to fall in the stated direction.
-            ${moodRefInputText}
+      const productRule = isGroup ? `
+            RULE 1: GROUP PRODUCT IDENTITY & TEXTURE LOCK (100% Match Required - 각 제품 형태/디테일/원단 질감 완벽 보존)
+            - [Input Image 1] through [Input Image ${productCount}] each represent a SEPARATE individual product that MUST ALL appear together in ONE SINGLE group composition.
+            - EXACTLY ${productCount} products must be visible in the final image — do NOT duplicate, merge, omit, or invent new products.
+            - Each product's exact shape, color, typography, branding details, and texture/fabric weave MUST be preserved identically to its source image.
+            - TEXTURE PRESERVATION for every product: no AI smoothing, no plastic filters — raw hyper-realistic photography.
 
+            RULE 1-B: GROUP COMPOSITION & ARRANGEMENT
+            - Arrange all ${productCount} products in a visually balanced flat-lay group composition on the SAME single background surface.
+            - Unified consistent lighting across all products — every product's shadow MUST fall in the same direction as specified in the LIGHTING DIRECTION section below.
+            - Natural aesthetic spacing between items; slight overlap allowed only if it feels editorially intentional.
+            - FRAMING: zoom out so all ${productCount} products fit comfortably with ~10% margin on all sides. No item cropped at the edge.`
+        : `
             RULE 1: PRODUCT IDENTITY & TEXTURE LOCK (100% Match Required - 최우선 순위: 제품 형태, 디테일, 원단 질감 완벽 보존)
             - The generated image MUST preserve the exact shape, color, typography, and branding details of the product in the [Input Image 1].
             - TEXTURE PRESERVATION: You MUST perfectly retain the micro-texture, fabric weave, wrinkles, and material properties of the original product. Do NOT apply AI smoothing, plastic-like filters, or illustrative styles. It must look like raw, unedited, hyper-realistic photography.
-            - FRAMING & MARGINS: Zoom out the camera slightly to provide about 10% MORE negative space (margins) around the product than standard framing. The main product should be proportionally smaller within the frame to allow breathing room.
+            - FRAMING & MARGINS: Zoom out the camera slightly to provide about 10% MORE negative space (margins) around the product than standard framing. The main product should be proportionally smaller within the frame to allow breathing room.`;
+
+      const parts = [
+        { text: `
+            TASK: ${taskLine}
+
+            CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
+            CRITICAL RULE 2: SCENE SETUP - ${isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.'}
+            CRITICAL RULE 3: STRICT LIGHTING PHYSICS - Shadows MUST obey the Lighting Direction exactly. Look at the LIGHTING DIRECTION section and force the shadows to fall in the stated direction.
+            ${moodRefInputText}
+${productRule}
 
             RULE 2: SHAPE & FOLD PRESERVATION
             ${shapePreservationDesc}
@@ -1699,7 +1739,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
             ${HIGH_END_STYLE_PROMPT}
         ` },
-        { inlineData: { mimeType: "image/jpeg", data: compProduct.split(',')[1] } }
+        ...compProducts.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } }))
       ];
 
       if (selectedBg === 'custom' && customBgImage) {
@@ -1742,13 +1782,36 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-8 custom-scrollbar">
 
-          {/* 0. Original Product Upload */}
+          {/* 0. Original Product Upload (최대 6장 → 2장 이상이면 단체컷) */}
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-bold uppercase flex items-center gap-2 text-black bg-gray-200 w-fit px-2 py-1"><Package className="w-4 h-4" /> 0. 원본 제품 이미지</h3>
-            <div onClick={() => document.getElementById('product-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'product'); }} className="h-64 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors">
-              {productImage ? (<img src={productImage} className="w-full h-full object-contain p-4" alt="Original Product" />) : (<div className="text-center p-4 text-gray-400"><UploadCloud className="w-8 h-8 mx-auto mb-2" /><p className="font-bold text-sm uppercase">업로드 (필수)</p></div>)}
-              <input id="product-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'product')} />
+            <h3 className="text-sm font-bold uppercase flex items-center gap-2 text-black bg-gray-200 w-fit px-2 py-1"><Package className="w-4 h-4" /> 0. 원본 제품 이미지 ({productImages.length}/6)</h3>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">2장 이상 업로드 시 <b>단체컷 한 장</b>으로 출력됩니다.</p>
+            <div className="grid grid-cols-3 gap-2" onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleProductUpload(e.dataTransfer.files); }}>
+              {Array.from({ length: 6 }).map((_, idx) => {
+                const img = productImages[idx];
+                if (img) {
+                  return (
+                    <div key={idx} className="aspect-square border border-black bg-white relative group">
+                      <img src={img} className="w-full h-full object-contain p-1" alt={`Product ${idx+1}`} />
+                      <button onClick={() => removeProductAt(idx)} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800 z-10"><X className="w-3 h-3" /></button>
+                      <span className="absolute bottom-0 left-0 bg-black text-white text-[9px] font-bold px-1 py-0.5">{idx + 1}</span>
+                    </div>
+                  );
+                }
+                const isNextSlot = idx === productImages.length;
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => isNextSlot && document.getElementById('product-upload').click()}
+                    className={`aspect-square border-2 border-dashed bg-white flex flex-col items-center justify-center transition-colors ${isNextSlot ? 'border-gray-400 hover:border-black cursor-pointer' : 'border-gray-200 opacity-50 cursor-not-allowed'}`}
+                  >
+                    {isNextSlot ? <UploadCloud className="w-5 h-5 text-gray-400 mb-1" /> : <Plus className="w-4 h-4 text-gray-300" />}
+                    <span className={`text-[10px] font-bold ${isNextSlot ? 'text-gray-500' : 'text-gray-300'}`}>{idx + 1}</span>
+                  </div>
+                );
+              })}
             </div>
+            <input id="product-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => { handleProductUpload(e.target.files); e.target.value = ''; }} />
           </div>
 
           {/* 1. Background Selection */}
@@ -1913,7 +1976,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
         {/* Generate Action Area Fixed Bottom */}
         <div className="p-5 border-t border-black bg-white sticky bottom-0">
-            <button onClick={handleGenerate} disabled={isGenerating || !productImage} className={`w-full text-white py-4 font-bold text-base uppercase transition-opacity flex items-center justify-center gap-2 ${generatedImage ? 'bg-gray-800 hover:bg-black' : 'bg-black hover:bg-gray-800'} disabled:opacity-50`}>
+            <button onClick={handleGenerate} disabled={isGenerating || productImages.length === 0} className={`w-full text-white py-4 font-bold text-base uppercase transition-opacity flex items-center justify-center gap-2 ${generatedImage ? 'bg-gray-800 hover:bg-black' : 'bg-black hover:bg-gray-800'} disabled:opacity-50`}>
                 {isGenerating ? (
                     <><Loader2 className="w-5 h-5 animate-spin" /> 제작 중...</>
                 ) : (
