@@ -1563,6 +1563,71 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     setProductImages(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const analyzeMoodReferenceLayout = async (moodImageDataUrl) => {
+    const apiKeyToUse = settings?.apiKey || DEFAULT_API_KEY;
+    const compMood = await compressImage(moodImageDataUrl, 1024, 0.8);
+    const analysisPrompt = `
+당신은 제품 촬영 레퍼런스 이미지의 배치(레이아웃)를 분석하는 전문가입니다.
+
+주어진 이미지에서 의류/제품이 어떻게 배치되어 있는지만 "정확하고 모호함 없이" 기술하세요.
+다른 시스템이 이 분석만 보고 동일한 배치를 재현할 수 있어야 합니다.
+
+다음 5가지 항목을 순서대로 출력하세요:
+
+1. 진열 방식 (Display Mode):
+   - 평면에 눕혀져 있음 (flat-lay / laid flat)
+   - 행거·옷걸이·봉·후크에 걸려 있음 (hanging)
+   - 벽에 핀/못으로 고정 (pinned to wall)
+   - 가구·의자 위에 걸쳐짐 (draped)
+   - 개어서 쌓여 있음 (folded stack)
+   - 혼합이면 각각 어떤 아이템이 어느 방식인지 명확히 구분
+
+2. 각 아이템별 위치 & 상태:
+   아이템마다 번호를 매기고 (아이템 1, 아이템 2, …), 각각에 대해 기술:
+   - 프레임 내 위치: 상/중/하 × 좌/중/우 (예: "상단-좌측", "중단-중앙")
+   - 걸림/눕힘 여부 (걸림이면 무엇에 걸렸는지: 옷걸이 / 봉 / 후크)
+   - 방향/자세: 앞면 보임 / 뒷면 보임 / 접힌 상태 / 부분 접힘 / 완전히 펼쳐짐 / 드레이핑
+   - 회전/기울기: 정렬된 각도인지, 기울어져 있는지 (대략 몇 도)
+
+3. 간격 & 겹침:
+   - 아이템 간 간격이 넓은지/좁은지/맞닿는지/겹치는지
+   - 겹친다면 어느 아이템이 위에, 어느 아이템이 아래에 있는지
+
+4. 전체 구도:
+   - 그리드 / 한 줄 가로 / 한 줄 세로 / 대각선 / 원형 / 클러스터 / 흩뿌림 / 계단식 등
+
+5. 여백 (Negative Space):
+   - 전체 프레임에서 아이템이 차지하는 비율
+   - 여백이 많은 쪽 (상/하/좌/우)
+
+출력 규칙:
+- 반드시 한국어로
+- 색상·브랜드·원단 종류·스타일은 절대 언급하지 말 것 (오직 위치·방향·구조만)
+- 간결하게, 번호와 줄바꿈으로 구조화
+- 서론·결론 없이 바로 본문만
+`;
+
+    const parts = [
+      { text: analysisPrompt },
+      { inlineData: { mimeType: "image/jpeg", data: compMood.split(',')[1] } }
+    ];
+
+    const response = await fetchWithRetry(
+      `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts }] })
+      }
+    );
+
+    const data = await response.json();
+    if (data.error) throw new Error(`Analysis API Error: ${data.error.message}`);
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("무드 레퍼런스 분석 결과가 비어있습니다.");
+    return text.trim();
+  };
+
   const handleDownloadImage = () => {
     if (!generatedImage) return;
     const link = document.createElement('a');
@@ -1582,6 +1647,18 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       const compProducts = await Promise.all(productImages.map(img => compressImage(img, 1024, 0.8)));
       const isGroup = compProducts.length > 1;
       const productCount = compProducts.length;
+
+      // STEP 1: Pre-analyze the mood reference layout (if provided) so the generation model
+      // receives a structured textual blueprint rather than having to infer the layout itself.
+      let moodAnalysis = null;
+      if (moodReferenceImage) {
+        try {
+          showNotification("무드 레퍼런스 배치 분석 중...");
+          moodAnalysis = await analyzeMoodReferenceLayout(moodReferenceImage);
+        } catch (e) {
+          console.warn("Mood reference analysis failed, continuing without structured analysis:", e);
+        }
+      }
 
       let bgDesc = "";
       if (selectedBg === 'whiteboard') bgDesc = "clean studio whiteboard background, pure white, infinite white seamless backdrop";
@@ -1605,23 +1682,35 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       let moodRefDesc = "";
       let moodRefInputText = "";
       if (moodReferenceImage) {
+          const analysisBlock = moodAnalysis
+              ? `
+            사전 분석 결과 (PRE-ANALYZED LAYOUT BLUEPRINT — follow this EXACTLY):
+            <<<BEGIN LAYOUT ANALYSIS>>>
+${moodAnalysis}
+            <<<END LAYOUT ANALYSIS>>>
+`
+              : `
+            (No structured analysis available — infer the arrangement from the last input image directly.)
+`;
+
           moodRefDesc = `
-            MOOD REFERENCE (NEAR-PERFECT ARRANGEMENT COPY + COLOR/TONE):
-            - A [Mood Reference Image] has been provided as the LAST input image.
-            - EXTRACT the following qualities from it:
-              (a) COLOR & TONE: overall color palette, color grading, film/tone character, atmospheric mood, lighting softness/contrast feel.
-              (b) PRODUCT ARRANGEMENT / LAYOUT — TOP PRIORITY, NEAR-PERFECT REPLICATION REQUIRED:
-                * Match the EXACT position coordinates of each item within the frame (top/bottom/left/right/center placement).
-                * Match the EXACT orientation and rotation angle of each item.
-                * Match the EXACT spacing, gaps, and overlap relationships between items.
-                * Match the EXACT scale ratios between items (which item appears larger/smaller relative to others).
-                * Match the EXACT overall composition shape (grid / diagonal / circular / scattered / clustered / linear).
-                * Match the EXACT negative space distribution and framing margins.
-            - APPLY (a) as a final color grading / mood filter.
-            - APPLY (b) with near-perfect fidelity — if the reference has an item in the upper-left corner at a 30-degree tilt, place the user's product at the upper-left corner at a 30-degree tilt. Map the user's ${isGroup ? productCount + ' products' : 'product'} onto the reference's arrangement slots one-by-one.
-            - STRICT SUBSTITUTION RULE: Treat the reference as a LAYOUT TEMPLATE. Every object slot in the reference is replaced by a user-provided product, preserving that slot's position/rotation/scale. If the reference has more items than the user provided, use only as many slots as needed; if fewer, expand the arrangement logically while keeping the core pattern.
-            - STRICT PROHIBITION: DO NOT copy the literal products, logos, typography, fabric patterns, colors of objects, or subject matter from the Mood Reference. The products in the final image MUST be ONLY the user-provided [Input Image 1${isGroup ? ` through ${productCount}` : ''}]. The reference is a LAYOUT TEMPLATE + COLOR FILTER ONLY.`;
-          moodRefInputText = `\n            * The LAST input image is the [Mood Reference Image] — treat it as a LAYOUT TEMPLATE to replicate the exact product positioning, plus a color/tonal mood filter. Do NOT copy its products or content.`;
+            MOOD REFERENCE — LAYOUT BLUEPRINT (STRICT REPLICATION REQUIRED):
+${analysisBlock}
+            MANDATORY EXECUTION INSTRUCTIONS:
+            - STEP 1 (UNDERSTAND): Parse the layout analysis above. Identify each "slot" — a slot is one item position in the reference, characterized by (display mode, frame position, orientation, rotation, scale).
+            - STEP 2 (MAP): Assign the user's ${isGroup ? productCount + ' products' : 'product'} to the slots in order. User's [Input Image 1] → first slot described in the analysis, [Input Image 2] → second slot, and so on.
+            - STEP 3 (RENDER): Render each user product at its assigned slot with the EXACT display mode, position, orientation, rotation, and relative scale described in the analysis.
+              * If the analysis says "hanging from a hanger at top-center", the user's product must appear hanging from a hanger at top-center.
+              * If the analysis says "laid flat, face-up, rotated ~15 degrees clockwise at bottom-left", the user's product must appear laid flat face-up rotated ~15° at bottom-left.
+            - STEP 4 (COUNT MISMATCH): If the reference has MORE slots than user products (${productCount}), use only the first ${productCount} slots. If FEWER slots, extend the pattern (same display mode, same orientation logic, reasonable spacing) to accommodate all ${productCount} products.
+
+            COLOR & TONE: Also apply the reference's color palette, film tone, and atmospheric mood as a subtle grading filter on the final image.
+
+            ABSOLUTE PROHIBITION:
+            - NEVER copy the literal products, logos, prints, patterns, or fabric types from the reference.
+            - The ONLY products in the final image are the user-provided [Input Image 1${isGroup ? ` through ${productCount}` : ''}].
+            - The reference image is a LAYOUT TEMPLATE + COLOR FILTER — not a content source.`;
+          moodRefInputText = `\n            * The LAST input image is the [Mood Reference Image]. Its arrangement has been pre-analyzed and provided as a textual layout blueprint in the MOOD REFERENCE section below — follow that blueprint strictly.`;
       }
 
       const taskLine = isGroup
@@ -1640,10 +1729,11 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             - ANTI-HALLUCINATION: Do NOT smooth, re-illustrate, simplify, re-weave, or "beautify" any product detail. The output must feel like a high-resolution real photograph of the exact physical items.
 
             RULE 1-B: GROUP COMPOSITION
-            - Arrange all ${productCount} products on the SAME single background surface.
+            - ${moodReferenceImage
+                ? `The arrangement (positions, display mode, orientations, spacing) IS DICTATED by the MOOD REFERENCE LAYOUT BLUEPRINT. Follow that blueprint. Do not override it with a default flat-lay.`
+                : `Arrange all ${productCount} products on the SAME single background surface in a visually balanced flat-lay. Natural aesthetic spacing; slight overlap allowed only if editorially meaningful.`}
             - Unified consistent lighting across all products — every product's shadow falls in a consistent natural direction.
-            - FRAMING: zoom out so all ${productCount} products fit comfortably with ~10% margin on all sides. No item cropped at the edge.
-            - If a Mood Reference is provided, its arrangement pattern OVERRIDES any default grouping logic (see MOOD REFERENCE section).`
+            - FRAMING: zoom out so all ${productCount} products fit comfortably with ~10% margin on all sides. No item cropped at the edge.`
         : `
             RULE 1: PRODUCT IDENTITY & DETAIL LOCK (ABSOLUTE 100% Match Required - 라벨·로고·프린트·원단·재봉선·부자재까지 완벽 보존)
             - PIXEL-LEVEL DETAIL PRESERVATION for the product in [Input Image 1]:
@@ -1659,8 +1749,12 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             TASK: ${taskLine}
 
             CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
-            CRITICAL RULE 2: SCENE SETUP - ${isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.'}
-            CRITICAL RULE 3: CAMERA DEFAULT - Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface) unless the Mood Reference indicates a different angle — in that case match the reference's angle.
+            CRITICAL RULE 2: SCENE SETUP - ${moodReferenceImage
+                ? `The display mode (laid flat / hanging / draped / folded stacks / mixed) is DETERMINED BY the MOOD REFERENCE LAYOUT BLUEPRINT below. DO NOT default to flat-lay if the reference shows hanging or other arrangements. Follow the blueprint's display mode exactly.`
+                : (isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.')}
+            CRITICAL RULE 3: CAMERA - ${moodReferenceImage
+                ? `Match the camera angle/framing implied by the MOOD REFERENCE LAYOUT BLUEPRINT (e.g. if hanging garments are shown frontally, use a front-facing camera; if flat-lay, use top-down).`
+                : `Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface).`}
             ${moodRefInputText}
 ${productRule}
 
