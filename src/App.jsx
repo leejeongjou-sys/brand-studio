@@ -1505,14 +1505,6 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
   const [selectedBg, setSelectedBg] = useState('whiteboard');
   const [selectedLighting, setSelectedLighting] = useState('softbox');
 
-  const [mainLightDir, setMainLightDir] = useState('top_left');
-  const [subLightDir, setSubLightDir] = useState(null);
-  const [lightSelectMode, setLightSelectMode] = useState('main'); // 'main' or 'sub'
-
-  const [cameraAngle, setCameraAngle] = useState('top_down');
-  const [cameraDir, setCameraDir] = useState('center');
-  const [selectedCamera, setSelectedCamera] = useState('sony');
-
   const [prompt, setPrompt] = useState('');
   const [generatedImage, setGeneratedImage] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1536,39 +1528,6 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     { id: 'strong_natural', label: '강한 자연광', desc: '깊은 그림자가 지는 쨍한 햇빛' },
     { id: 'soft_natural', label: '네츄럴 자연광', desc: '창가로 들어오는 은은한 빛' }
   ];
-
-  const cameraOptions = [
-    { id: 'sony', label: 'Sony ILCE-1M2', desc: '초고해상도 풀프레임 상업용 화질' },
-    { id: 'leica', label: 'Leica M3', desc: '클래식한 색감의 35mm 필름 감성' },
-    { id: 'iphone', label: 'iPhone 16', desc: '선명하고 트렌디한 스마트폰 룩' }
-  ];
-
-  const getLightDirLabel = (dir) => {
-    const labels = {
-      'top_left': '좌상단', 'top': '상단', 'top_right': '우상단',
-      'left': '좌측', 'center': '직광(중앙)', 'right': '우측',
-      'bottom_left': '좌하단', 'bottom': '하단', 'bottom_right': '우하단'
-    };
-    return labels[dir] || '';
-  };
-
-  const handleLightClick = (id) => {
-    if (lightSelectMode === 'main') {
-      if (subLightDir === id) setSubLightDir(null);
-      setMainLightDir(id);
-    } else {
-      if (mainLightDir === id) return;
-      if (subLightDir === id) setSubLightDir(null);
-      else setSubLightDir(id);
-    }
-  };
-
-  const getLightBtnClass = (id) => {
-    const base = "flex flex-col items-center justify-center p-2 border-2 rounded-lg transition-colors ";
-    if (mainLightDir === id) return base + "bg-black border-black text-white";
-    if (subLightDir === id) return base + "bg-gray-600 border-gray-600 text-white";
-    return base + "bg-gray-50 border-transparent hover:bg-gray-200 text-gray-600";
-  };
 
   const handleImageUpload = async (file, type) => {
     if (!file) return;
@@ -1639,45 +1598,6 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       else if (selectedLighting === 'strong_natural') lightDesc = "strong harsh natural sunlight, distinct deep shadows, golden hour";
       else lightDesc = "soft ambient natural window light, cloudy day, diffused natural illumination";
 
-      const getDirectionKeywords = (dir) => {
-        const map = {
-          'top_left': { origin: 'top-left corner', shadow: 'bottom-right corner' },
-          'top': { origin: 'top edge', shadow: 'bottom edge' },
-          'top_right': { origin: 'top-right corner', shadow: 'bottom-left corner' },
-          'left': { origin: 'left side', shadow: 'right side' },
-          'center': { origin: 'directly overhead (zenith)', shadow: 'directly underneath the product (no long shadows)' },
-          'right': { origin: 'right side', shadow: 'left side' },
-          'bottom_left': { origin: 'bottom-left corner (uplighting)', shadow: 'top-right corner' },
-          'bottom': { origin: 'bottom edge (uplighting)', shadow: 'top edge' },
-          'bottom_right': { origin: 'bottom-right corner (uplighting)', shadow: 'top-left corner' },
-        };
-        return map[dir] || map['top'];
-      };
-
-      const mainDirInfo = getDirectionKeywords(mainLightDir);
-      let lightDirDesc = `MAIN LIGHT: Positioned strictly at the ${mainDirInfo.origin}. Bright highlights must appear on the ${mainDirInfo.origin.split(' ')[0]} of the product. Prominent, distinct shadows MUST be cast towards the ${mainDirInfo.shadow}.`;
-
-      if (subLightDir) {
-          const subDirInfo = getDirectionKeywords(subLightDir);
-          lightDirDesc += `\nFILL LIGHT: A secondary, much softer and weaker fill light (25% intensity) is positioned at the ${subDirInfo.origin}, slightly lifting the shadows but NOT overpowering the main shadow direction.`;
-      }
-
-      let angleDesc = "";
-      let hDir = cameraDir === 'left' ? "from the left side, " : cameraDir === 'right' ? "from the right side, " : "from the straight front, ";
-
-      if (cameraAngle === 'top_down') {
-        angleDesc = "top-down flat lay perspective, shot directly from above at a perfect 90-degree angle. The camera is perfectly parallel to the flat surface.";
-      } else if (cameraAngle === 'high_angle') {
-        angleDesc = `high angle shot ${hDir}looking down at the flat-laying product from a 45-degree angle.`;
-      } else if (cameraAngle === 'low_angle') {
-        angleDesc = `low angle shot ${hDir}camera positioned very close to the ground surface, looking across the product at a 10-degree eye-level with the surface.`;
-      }
-
-      let camDesc = "";
-      if (selectedCamera === 'sony') camDesc = "shot on Sony ILCE-1M2, full-frame mirrorless, incredibly sharp, 8k resolution, modern commercial photography";
-      else if (selectedCamera === 'leica') camDesc = "shot on Leica M3, 35mm film photography, vintage grain, classic color rendition, timeless analog feel";
-      else camDesc = "shot on iPhone 16, computational photography, mobile HDR, contemporary smartphone aesthetic, vibrant colors";
-
       let shapePreservationDesc = prompt
         ? `User's Additional Instructions (Apply these changes if requested): ${prompt}`
         : `CRITICAL FORM PRESERVATION: You MUST keep the EXACT physical silhouette, outline, folds, and wrinkles exactly as shown in the input image. DO NOT "tidy up", "iron out", or auto-correct the shape. If the original is wrinkled, messy, or asymmetrical, the output MUST be perfectly identical in its wrinkled/messy state.`;
@@ -1686,16 +1606,22 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       let moodRefInputText = "";
       if (moodReferenceImage) {
           moodRefDesc = `
-            MOOD REFERENCE (ART DIRECTION + PRODUCT ARRANGEMENT):
+            MOOD REFERENCE (NEAR-PERFECT ARRANGEMENT COPY + COLOR/TONE):
             - A [Mood Reference Image] has been provided as the LAST input image.
             - EXTRACT the following qualities from it:
               (a) COLOR & TONE: overall color palette, color grading, film/tone character, atmospheric mood, lighting softness/contrast feel.
-              (b) PRODUCT ARRANGEMENT / LAYOUT: the spatial positioning pattern of items in the reference — where items sit relative to each other, their orientation, spacing, overlap, scale relationships, grouping density, alignment (grid/organic/diagonal/clustered/spread), and negative space usage.
-            - APPLY (a) as a final color grading / mood filter on top of the chosen background and lighting settings.
-            - APPLY (b) by arranging the ${isGroup ? `${productCount} user-provided products` : 'product'} in the SAME spatial pattern as the reference. Match the layout structure, not the literal objects.
-            - STRICT PROHIBITION: DO NOT copy the literal products, logos, typography, or subject matter from the Mood Reference. The products in the final image MUST be ONLY the user-provided [Input Image 1${isGroup ? ` through ${productCount}` : ''}]. The reference is a LAYOUT + MOOD guide, NOT a source of products or background content.
-            - If the reference's arrangement style conflicts with the explicit CAMERA ANGLE or BACKGROUND settings, prioritize those explicit settings but preserve the arrangement pattern as closely as possible within them.`;
-          moodRefInputText = `\n            * The LAST input image is the [Mood Reference Image] — use it for color/tonal mood AND product arrangement pattern (NOT for the products themselves).`;
+              (b) PRODUCT ARRANGEMENT / LAYOUT — TOP PRIORITY, NEAR-PERFECT REPLICATION REQUIRED:
+                * Match the EXACT position coordinates of each item within the frame (top/bottom/left/right/center placement).
+                * Match the EXACT orientation and rotation angle of each item.
+                * Match the EXACT spacing, gaps, and overlap relationships between items.
+                * Match the EXACT scale ratios between items (which item appears larger/smaller relative to others).
+                * Match the EXACT overall composition shape (grid / diagonal / circular / scattered / clustered / linear).
+                * Match the EXACT negative space distribution and framing margins.
+            - APPLY (a) as a final color grading / mood filter.
+            - APPLY (b) with near-perfect fidelity — if the reference has an item in the upper-left corner at a 30-degree tilt, place the user's product at the upper-left corner at a 30-degree tilt. Map the user's ${isGroup ? productCount + ' products' : 'product'} onto the reference's arrangement slots one-by-one.
+            - STRICT SUBSTITUTION RULE: Treat the reference as a LAYOUT TEMPLATE. Every object slot in the reference is replaced by a user-provided product, preserving that slot's position/rotation/scale. If the reference has more items than the user provided, use only as many slots as needed; if fewer, expand the arrangement logically while keeping the core pattern.
+            - STRICT PROHIBITION: DO NOT copy the literal products, logos, typography, fabric patterns, colors of objects, or subject matter from the Mood Reference. The products in the final image MUST be ONLY the user-provided [Input Image 1${isGroup ? ` through ${productCount}` : ''}]. The reference is a LAYOUT TEMPLATE + COLOR FILTER ONLY.`;
+          moodRefInputText = `\n            * The LAST input image is the [Mood Reference Image] — treat it as a LAYOUT TEMPLATE to replicate the exact product positioning, plus a color/tonal mood filter. Do NOT copy its products or content.`;
       }
 
       const taskLine = isGroup
@@ -1703,22 +1629,30 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
         : `Pure Product Photography (Flat-Lay Setup).`;
 
       const productRule = isGroup ? `
-            RULE 1: GROUP PRODUCT IDENTITY & TEXTURE LOCK (100% Match Required - 각 제품 형태/디테일/원단 질감 완벽 보존)
+            RULE 1: GROUP PRODUCT IDENTITY & DETAIL LOCK (ABSOLUTE 100% Match Required - 각 제품의 라벨·로고·프린트·원단·재봉선·부자재까지 완벽 보존)
             - [Input Image 1] through [Input Image ${productCount}] each represent a SEPARATE individual product that MUST ALL appear together in ONE SINGLE group composition.
             - EXACTLY ${productCount} products must be visible in the final image — do NOT duplicate, merge, omit, or invent new products.
-            - Each product's exact shape, color, typography, branding details, and texture/fabric weave MUST be preserved identically to its source image.
-            - TEXTURE PRESERVATION for every product: no AI smoothing, no plastic filters — raw hyper-realistic photography.
+            - PIXEL-LEVEL DETAIL PRESERVATION for every product:
+              * LABELS & TEXT: all brand labels, wash-care labels, hangtags, printed text, logos, typography MUST be copied exactly — identical font, spacing, color, position, and readability. DO NOT rewrite, translate, paraphrase, or distort any text.
+              * FABRIC & MATERIAL: exact fabric weave, thread direction, knit pattern, leather grain, denim twill, stitching thread color, seam allowance, topstitching pitch, all trims (buttons, zippers, snaps, rivets, eyelets) MUST be preserved down to the micro-texture level.
+              * PRINTS & GRAPHICS: all graphic prints, embroidery, patches, screen prints MUST match the source pixel-for-pixel.
+              * COLOR: exact hue, saturation, and value of every product element — no AI color shift.
+            - ANTI-HALLUCINATION: Do NOT smooth, re-illustrate, simplify, re-weave, or "beautify" any product detail. The output must feel like a high-resolution real photograph of the exact physical items.
 
-            RULE 1-B: GROUP COMPOSITION & ARRANGEMENT
-            - Arrange all ${productCount} products in a visually balanced flat-lay group composition on the SAME single background surface.
-            - Unified consistent lighting across all products — every product's shadow MUST fall in the same direction as specified in the LIGHTING DIRECTION section below.
-            - Natural aesthetic spacing between items; slight overlap allowed only if it feels editorially intentional.
-            - FRAMING: zoom out so all ${productCount} products fit comfortably with ~10% margin on all sides. No item cropped at the edge.`
+            RULE 1-B: GROUP COMPOSITION
+            - Arrange all ${productCount} products on the SAME single background surface.
+            - Unified consistent lighting across all products — every product's shadow falls in a consistent natural direction.
+            - FRAMING: zoom out so all ${productCount} products fit comfortably with ~10% margin on all sides. No item cropped at the edge.
+            - If a Mood Reference is provided, its arrangement pattern OVERRIDES any default grouping logic (see MOOD REFERENCE section).`
         : `
-            RULE 1: PRODUCT IDENTITY & TEXTURE LOCK (100% Match Required - 최우선 순위: 제품 형태, 디테일, 원단 질감 완벽 보존)
-            - The generated image MUST preserve the exact shape, color, typography, and branding details of the product in the [Input Image 1].
-            - TEXTURE PRESERVATION: You MUST perfectly retain the micro-texture, fabric weave, wrinkles, and material properties of the original product. Do NOT apply AI smoothing, plastic-like filters, or illustrative styles. It must look like raw, unedited, hyper-realistic photography.
-            - FRAMING & MARGINS: Zoom out the camera slightly to provide about 10% MORE negative space (margins) around the product than standard framing. The main product should be proportionally smaller within the frame to allow breathing room.`;
+            RULE 1: PRODUCT IDENTITY & DETAIL LOCK (ABSOLUTE 100% Match Required - 라벨·로고·프린트·원단·재봉선·부자재까지 완벽 보존)
+            - PIXEL-LEVEL DETAIL PRESERVATION for the product in [Input Image 1]:
+              * LABELS & TEXT: all brand labels, wash-care labels, hangtags, printed text, logos, typography MUST be copied exactly — identical font, spacing, color, position, and readability. DO NOT rewrite, translate, paraphrase, or distort any text.
+              * FABRIC & MATERIAL: exact fabric weave, thread direction, knit pattern, leather grain, denim twill, stitching thread color, seam allowance, topstitching pitch, all trims (buttons, zippers, snaps, rivets, eyelets) MUST be preserved down to the micro-texture level.
+              * PRINTS & GRAPHICS: all graphic prints, embroidery, patches, screen prints MUST match the source pixel-for-pixel.
+              * COLOR: exact hue, saturation, and value — no AI color shift.
+            - ANTI-HALLUCINATION: Do NOT smooth, re-illustrate, simplify, re-weave, or "beautify" any product detail. The output must feel like a high-resolution real photograph of the exact physical item.
+            - FRAMING & MARGINS: Zoom out the camera slightly to provide about 10% MORE negative space (margins) around the product than standard framing.`;
 
       const parts = [
         { text: `
@@ -1726,7 +1660,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
             CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
             CRITICAL RULE 2: SCENE SETUP - ${isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.'}
-            CRITICAL RULE 3: STRICT LIGHTING PHYSICS - Shadows MUST obey the Lighting Direction exactly. Look at the LIGHTING DIRECTION section and force the shadows to fall in the stated direction.
+            CRITICAL RULE 3: CAMERA DEFAULT - Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface) unless the Mood Reference indicates a different angle — in that case match the reference's angle.
             ${moodRefInputText}
 ${productRule}
 
@@ -1736,9 +1670,6 @@ ${productRule}
             ART DIRECTION:
             BACKGROUND: ${bgDesc}
             LIGHTING SETUP: ${lightDesc}
-            LIGHTING DIRECTION: ${lightDirDesc}
-            CAMERA ANGLE: ${angleDesc}
-            CAMERA MODEL: ${camDesc}
             ${moodRefDesc}
 
             ${HIGH_END_STYLE_PROMPT}
@@ -1852,98 +1783,10 @@ ${productRule}
             </div>
           </div>
 
-          {/* 2-1. Lighting Direction UI (9 Directions & Main/Sub) */}
+          {/* 3. Mood Reference Image (Optional) */}
           <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-end border-b-2 border-black pb-1">
-              <h3 className="text-sm font-bold uppercase text-black">2-1. 조명 방향 설정 (9방향)</h3>
-            </div>
-            <div className="bg-white border-2 border-gray-200 p-4 flex flex-col items-center">
-                <div className="flex gap-2 mb-4 w-full justify-center">
-                    <button
-                        onClick={() => setLightSelectMode('main')}
-                        className={`px-3 py-1.5 text-[11px] font-bold border-2 rounded-full transition-colors flex items-center gap-1 ${lightSelectMode === 'main' ? 'bg-black border-black text-white' : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200'}`}
-                    >
-                        <span className="w-2 h-2 rounded-full bg-white"></span> 메인 조명 위치
-                    </button>
-                    <button
-                        onClick={() => setLightSelectMode('sub')}
-                        className={`px-3 py-1.5 text-[11px] font-bold border-2 rounded-full transition-colors flex items-center gap-1 ${lightSelectMode === 'sub' ? 'bg-gray-600 border-gray-600 text-white' : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200'}`}
-                    >
-                        <span className="w-2 h-2 rounded-full bg-white"></span> 서브 조명 (1/4)
-                    </button>
-                </div>
-                <p className="text-[10px] text-gray-500 font-bold mb-4 text-center">현재 모드 선택 후 아래 방향 패널을 클릭하세요.<br/>(서브 조명은 선택된 방향을 한 번 더 누르면 취소됩니다)</p>
-                <div className="grid grid-cols-3 gap-2 w-48 mx-auto">
-                    {/* Top Row */}
-                    <button onClick={() => handleLightClick('top_left')} className={getLightBtnClass('top_left')}><ArrowUp className="-rotate-45 w-4 h-4 mb-1"/><span className="text-[10px] font-bold">좌상단</span></button>
-                    <button onClick={() => handleLightClick('top')} className={getLightBtnClass('top')}><ArrowUp className="w-4 h-4 mb-1"/><span className="text-[10px] font-bold">상단</span></button>
-                    <button onClick={() => handleLightClick('top_right')} className={getLightBtnClass('top_right')}><ArrowUp className="rotate-45 w-4 h-4 mb-1"/><span className="text-[10px] font-bold">우상단</span></button>
-
-                    {/* Middle Row */}
-                    <button onClick={() => handleLightClick('left')} className={getLightBtnClass('left')}><ChevronLeft className="w-4 h-4 mb-1"/><span className="text-[10px] font-bold">좌측</span></button>
-                    <button onClick={() => handleLightClick('center')} className={getLightBtnClass('center')}><Sun className="w-4 h-4 mb-1"/><span className="text-[10px] font-bold">중앙(직광)</span></button>
-                    <button onClick={() => handleLightClick('right')} className={getLightBtnClass('right')}><ChevronRight className="w-4 h-4 mb-1"/><span className="text-[10px] font-bold">우측</span></button>
-
-                    {/* Bottom Row */}
-                    <button onClick={() => handleLightClick('bottom_left')} className={getLightBtnClass('bottom_left')}><ArrowDown className="rotate-45 w-4 h-4 mb-1"/><span className="text-[10px] font-bold">좌하단</span></button>
-                    <button onClick={() => handleLightClick('bottom')} className={getLightBtnClass('bottom')}><ArrowDown className="w-4 h-4 mb-1"/><span className="text-[10px] font-bold">하단</span></button>
-                    <button onClick={() => handleLightClick('bottom_right')} className={getLightBtnClass('bottom_right')}><ArrowDown className="-rotate-45 w-4 h-4 mb-1"/><span className="text-[10px] font-bold">우하단</span></button>
-                </div>
-                <div className="mt-4 w-full flex flex-col gap-1 text-[11px]">
-                  <div className="flex justify-between items-center bg-gray-100 border border-gray-300 px-3 py-1.5 rounded">
-                    <span className="text-black font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-black"></span>메인 조명</span>
-                    <span className="text-black font-extrabold">{getLightDirLabel(mainLightDir)}</span>
-                  </div>
-                  <div className="flex justify-between items-center bg-gray-50 border border-gray-300 px-3 py-1.5 rounded">
-                    <span className="text-gray-700 font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-600"></span>서브 조명</span>
-                    <span className="text-gray-800 font-extrabold">{subLightDir ? getLightDirLabel(subLightDir) : '선택 안 됨'}</span>
-                  </div>
-                </div>
-            </div>
-          </div>
-
-          {/* 3. Camera Angle Selection */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">3. 카메라 촬영 구도</h3>
-            <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setCameraAngle('top_down')} className={`flex flex-col items-center justify-center p-3 border-2 transition-all ${cameraAngle === 'top_down' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                    <div className="text-sm font-bold mb-1">항공샷 (90°)</div>
-                    <div className={`text-[10px] text-center leading-tight ${cameraAngle === 'top_down' ? 'text-gray-300' : 'text-gray-500'}`}>위에서 수직으로<br/>내려다본 구도</div>
-                </button>
-                <button onClick={() => setCameraAngle('high_angle')} className={`flex flex-col items-center justify-center p-3 border-2 transition-all ${cameraAngle === 'high_angle' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                    <div className="text-sm font-bold mb-1">하이앵글 (45°)</div>
-                    <div className={`text-[10px] text-center leading-tight ${cameraAngle === 'high_angle' ? 'text-gray-300' : 'text-gray-500'}`}>사선으로 비스듬히<br/>내려다본 구도</div>
-                </button>
-                <button onClick={() => setCameraAngle('low_angle')} className={`flex flex-col items-center justify-center p-3 border-2 transition-all ${cameraAngle === 'low_angle' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                    <div className="text-sm font-bold mb-1">측면/바닥 (10°)</div>
-                    <div className={`text-[10px] text-center leading-tight ${cameraAngle === 'low_angle' ? 'text-gray-300' : 'text-gray-500'}`}>바닥에 가까운<br/>낮은 눈높이 구도</div>
-                </button>
-            </div>
-            {cameraAngle !== 'top_down' && (
-              <div className="flex gap-2 mt-1">
-                  <button onClick={() => setCameraDir('left')} className={`flex-1 py-2 text-[11px] font-bold border-2 transition-all ${cameraDir === 'left' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'}`}>좌측에서 촬영</button>
-                  <button onClick={() => setCameraDir('center')} className={`flex-1 py-2 text-[11px] font-bold border-2 transition-all ${cameraDir === 'center' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'}`}>정면에서 촬영</button>
-                  <button onClick={() => setCameraDir('right')} className={`flex-1 py-2 text-[11px] font-bold border-2 transition-all ${cameraDir === 'right' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'}`}>우측에서 촬영</button>
-              </div>
-            )}
-          </div>
-
-          {/* 4. Camera Selection */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">4. 카메라 기종</h3>
-            <div className="grid grid-cols-3 gap-2">
-                {cameraOptions.map(cam => (
-                    <button key={cam.id} onClick={() => setSelectedCamera(cam.id)} className={`p-3 text-center border-2 transition-all ${selectedCamera === cam.id ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                        <span className="text-[11px] font-bold">{cam.label}</span>
-                    </button>
-                ))}
-            </div>
-          </div>
-
-          {/* 5. Mood Reference Image (Optional) */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 무드 레퍼런스 (선택)</h3>
-            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스 이미지의 <b>색감·톤·분위기 + 제품 배치 레이아웃</b>을 참고합니다. (제품 자체는 원본 업로드 이미지를 사용)</p>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">3. 무드 레퍼런스 (선택)</h3>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스의 <b>제품 배치를 거의 그대로 카피</b>하고, 색감·톤도 함께 반영합니다. (제품 자체는 업로드된 원본만 사용)</p>
             <div onClick={() => document.getElementById('mood-ref-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'moodRef'); }} className="h-40 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
               {moodReferenceImage ? (
                 <>
@@ -1957,9 +1800,9 @@ ${productRule}
             </div>
           </div>
 
-          {/* 6. Custom Prompt / Additional Comments */}
+          {/* 4. Custom Prompt / Additional Comments */}
           <div className="flex flex-col gap-2 pt-2">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">6. 추가 코멘트 (선택)</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">4. 추가 코멘트 (선택)</h3>
             <div className="flex flex-wrap gap-2 mb-1">
               {productSnippets.map(s => (
                 <button key={s} onClick={() => appendPromptSnippet(s, setPrompt)} className="text-[11px] font-bold px-2 py-1 bg-gray-100 border border-gray-200 hover:bg-gray-200 text-gray-700 transition-colors">
