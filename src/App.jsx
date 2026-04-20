@@ -1209,20 +1209,27 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       }
 
       const mainItem = items.find(i => i.id === mainItemId);
-      let closeUpFocus = "Upper body close-up (waist up, maintaining the face visibility)";
-      if (mainItem) {
-          if (mainItem.type === 'BOTTOM') {
-              closeUpFocus = "Lower body close-up (waist down to ankles, explicitly focusing on the pants/skirt)";
-          } else if (mainItem.type === 'SHOES') {
-              closeUpFocus = "Extreme close-up on the feet and lower legs (focusing explicitly on the shoes)";
-          }
+      const mainType = mainItem?.type || 'TOP';
+      const mainLabel = mainItem?.label || 'Main Item';
+
+      let focus3 = "", focus4 = "";
+      if (mainType === 'BOTTOM') {
+          focus3 = `Change the camera framing to a LOWER BODY MEDIUM SHOT (from waist line down to the ankles) facing the camera straight-on. The camera is at waist-to-thigh level. Focus explicitly on the pants/skirt silhouette, drape, and fit of the Main Item (${mainLabel}). The head/face does NOT need to be in frame. The lighting, shadows, and studio background MUST remain exactly the same.`;
+          focus4 = `Change the camera framing to a LOWER BODY SHOT (from waist down to ankles) from a slight 3/4 side angle (about 25-30 degrees off-axis) to show the side silhouette, fabric drape, and fit of the Main Item (${mainLabel}). The camera is at waist level. Head/face does not need to be in frame. The lighting, shadows, and studio background MUST remain exactly the same.`;
+      } else if (mainType === 'SHOES') {
+          focus3 = `Change the camera framing to a FEET & LOWER LEG CLOSE-UP (from mid-shin down to the floor) at a straight frontal angle. The shoes (Main Item: ${mainLabel}) are the clear subject. The lighting, shadows, and studio background MUST remain exactly the same.`;
+          focus4 = `Change the camera framing to a FEET CLOSE-UP from a slight 3/4 angle, with one foot slightly forward (or mid-stride) to show the shoe silhouette dynamically. The shoes (Main Item: ${mainLabel}) must remain the subject. The lighting, shadows, and studio background MUST remain exactly the same.`;
+      } else {
+          // OUTER, TOP, ACC, etc. → upper body focus
+          focus3 = `Change the camera framing to an UPPER BODY MEDIUM SHOT (from the waist line up to the top of the head) facing the camera straight-on. The face IS in frame (keep the identity lock). Focus explicitly on the neckline, shoulders, chest, sleeves, and overall silhouette of the Main Item (${mainLabel}). The lighting, shadows, and studio background MUST remain exactly the same.`;
+          focus4 = `Change the camera framing to an UPPER BODY MEDIUM SHOT (waist up to head) from a slight 3/4 side angle (about 25-30 degrees off-axis). The face is partially visible in profile (keep the identity lock). Focus on the side silhouette, sleeve drape, and how the Main Item (${mainLabel}) falls on the body. The lighting, shadows, and studio background MUST remain exactly the same.`;
       }
 
       const poseVariations = [
           "Change the model's pose to face completely straight forward towards the camera (Front View 1). The lighting, shadows, and studio background MUST remain exactly the same.",
           "Change the model's pose to face completely straight forward towards the camera, with a slightly different natural relaxed stance (Front View 2). The lighting, shadows, and studio background MUST remain exactly the same.",
-          "Change the model's pose to turn their body to their right side by exactly 10 degrees. The lighting, shadows, and studio background MUST remain exactly the same.",
-          `Change the camera framing to a ${closeUpFocus} to prominently highlight the Main Item (${mainItem?.label || 'Main Item'}). Strike a natural, dynamic free pose suitable for this close-up. The lighting, shadows, and studio background MUST remain exactly the same.`
+          focus3,
+          focus4
       ];
 
       const promises = poseVariations.map((poseDesc, i) => {
@@ -1457,7 +1464,14 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                  <CheckCircle2 className="w-5 h-5 text-black" />
                  <span className="text-sm font-bold uppercase text-black">Generation Complete ({currentFitIndex + 1}/{generatedFits.length})</span>
                  <span className="text-[10px] font-bold bg-gray-200 px-2 py-1 ml-auto">
-                    {currentFitIndex === 0 ? '정면 1' : currentFitIndex === 1 ? '정면 2' : currentFitIndex === 2 ? '우측 10도' : '자유포즈 클로즈업'}
+                    {(() => {
+                      const t = items.find(i => i.id === mainItemId)?.type;
+                      const isLower = t === 'BOTTOM' || t === 'SHOES';
+                      if (currentFitIndex === 0) return '정면 1';
+                      if (currentFitIndex === 1) return '정면 2';
+                      if (currentFitIndex === 2) return isLower ? '하반신 정면' : '상반신 정면';
+                      return isLower ? '하반신 사이드' : '상반신 사이드';
+                    })()}
                  </span>
               </div>
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
