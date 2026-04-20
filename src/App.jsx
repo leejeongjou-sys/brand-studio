@@ -1500,6 +1500,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 const ProductStudioGenerator = ({ settings, showNotification }) => {
   const [productImage, setProductImage] = useState(null);
   const [customBgImage, setCustomBgImage] = useState(null);
+  const [moodReferenceImage, setMoodReferenceImage] = useState(null);
 
   const [selectedBg, setSelectedBg] = useState('whiteboard');
   const [selectedLighting, setSelectedLighting] = useState('softbox');
@@ -1577,6 +1578,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             const img = await compressImage(r.result, 1024, 0.8);
             if (type === 'product') setProductImage(img);
             if (type === 'customBg') setCustomBgImage(img);
+            if (type === 'moodRef') setMoodReferenceImage(img);
         } catch { /* ignore */ }
     };
     r.readAsDataURL(file);
@@ -1658,6 +1660,18 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
         ? `User's Additional Instructions (Apply these changes if requested): ${prompt}`
         : `CRITICAL FORM PRESERVATION: You MUST keep the EXACT physical silhouette, outline, folds, and wrinkles exactly as shown in the input image. DO NOT "tidy up", "iron out", or auto-correct the shape. If the original is wrinkled, messy, or asymmetrical, the output MUST be perfectly identical in its wrinkled/messy state.`;
 
+      let moodRefDesc = "";
+      let moodRefInputText = "";
+      if (moodReferenceImage) {
+          moodRefDesc = `
+            MOOD REFERENCE (ART DIRECTION TONE & COLOR GRADING):
+            - A [Mood Reference Image] has been provided as the LAST input image.
+            - EXTRACT ONLY the following aesthetic qualities from it: overall color palette, color grading, film/tone character, atmospheric mood, and general lighting softness/contrast feel.
+            - APPLY these qualities as a final post-processing filter on top of all other art direction choices (background, lighting setup, camera, etc. still come from the explicit settings above).
+            - STRICT PROHIBITION: DO NOT copy the subject, composition, framing, props, or literal background of the Mood Reference Image. DO NOT replace the product, background, or camera angle chosen above. The Mood Reference is ONLY for color/tone/atmosphere guidance.`;
+          moodRefInputText = "\n            * The LAST input image is the [Mood Reference Image] — use it ONLY for color palette and tonal mood.";
+      }
+
       const parts = [
         { text: `
             TASK: Pure Product Photography (Flat-Lay Setup).
@@ -1665,6 +1679,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT.
             CRITICAL RULE 2: SCENE SETUP - The product is lying completely FLAT on the selected background surface.
             CRITICAL RULE 3: STRICT LIGHTING PHYSICS - Shadows MUST obey the Lighting Direction exactly. Look at the LIGHTING DIRECTION section and force the shadows to fall in the stated direction.
+            ${moodRefInputText}
 
             RULE 1: PRODUCT IDENTITY & TEXTURE LOCK (100% Match Required - 최우선 순위: 제품 형태, 디테일, 원단 질감 완벽 보존)
             - The generated image MUST preserve the exact shape, color, typography, and branding details of the product in the [Input Image 1].
@@ -1680,6 +1695,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             LIGHTING DIRECTION: ${lightDirDesc}
             CAMERA ANGLE: ${angleDesc}
             CAMERA MODEL: ${camDesc}
+            ${moodRefDesc}
 
             ${HIGH_END_STYLE_PROMPT}
         ` },
@@ -1689,6 +1705,11 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       if (selectedBg === 'custom' && customBgImage) {
           const compCustomBg = await compressImage(customBgImage, 1024, 0.8);
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
+      }
+
+      if (moodReferenceImage) {
+          const compMoodRef = await compressImage(moodReferenceImage, 1024, 0.8);
+          parts.push({ inlineData: { mimeType: "image/jpeg", data: compMoodRef.split(',')[1] } });
       }
 
       const { dataUrl } = await geminiGenerateImage({
@@ -1852,9 +1873,26 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             </div>
           </div>
 
-          {/* 5. Custom Prompt / Additional Comments */}
+          {/* 5. Mood Reference Image (Optional) */}
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 무드 레퍼런스 (선택)</h3>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스 이미지의 <b>색감·톤·분위기만</b> 참고합니다. (배경/구도/피사체는 영향 없음)</p>
+            <div onClick={() => document.getElementById('mood-ref-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'moodRef'); }} className="h-40 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+              {moodReferenceImage ? (
+                <>
+                  <img src={moodReferenceImage} className="w-full h-full object-contain p-2" alt="Mood Reference" />
+                  <button onClick={(e) => { e.stopPropagation(); setMoodReferenceImage(null); }} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
+                </>
+              ) : (
+                <div className="text-center p-4 text-gray-400"><UploadCloud className="w-7 h-7 mx-auto mb-1" /><p className="font-bold text-xs uppercase">무드 레퍼런스 업로드</p><p className="text-[10px] mt-1 text-gray-400">예) 분위기 참고용 화보, 광고컷</p></div>
+              )}
+              <input id="mood-ref-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'moodRef')} />
+            </div>
+          </div>
+
+          {/* 6. Custom Prompt / Additional Comments */}
           <div className="flex flex-col gap-2 pt-2">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 추가 코멘트 (선택)</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">6. 추가 코멘트 (선택)</h3>
             <div className="flex flex-wrap gap-2 mb-1">
               {productSnippets.map(s => (
                 <button key={s} onClick={() => appendPromptSnippet(s, setPrompt)} className="text-[11px] font-bold px-2 py-1 bg-gray-100 border border-gray-200 hover:bg-gray-200 text-gray-700 transition-colors">
