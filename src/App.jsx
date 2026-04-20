@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Palette, ChevronLeft, Sparkles, Plus, Image as ImageIcon,
-  CheckCircle2, XCircle, Loader2, Tag, 
+  CheckCircle2, XCircle, Loader2, Tag,
   Download, UploadCloud, FileUp, Trash2, AlertTriangle, FilePlus,
-  Pencil, Database, Key, Settings, X, Wand2, BookOpen, 
-  Shirt, MessageSquarePlus, Maximize2, UserCheck, Smartphone, Monitor, 
+  Pencil, Database, Key, Settings, X, Wand2, BookOpen,
+  Shirt, MessageSquarePlus, Maximize2, UserCheck, Smartphone, Monitor,
   RefreshCcw, Save, Layers, Scissors, PlusCircle, MinusCircle, Highlighter,
   Package, Camera, ChevronRight, Sun,
   ArrowUp, ArrowDown
@@ -38,7 +38,7 @@ import {
 // --- CONSTANTS & CONFIGURATION ---
 const FIXED_BRANDS = ['EZ', 'FP', 'JM', 'PS', 'WV'];
 const apiKey = ""; // System injected key
-const DEFAULT_API_KEY = apiKey; 
+const DEFAULT_API_KEY = apiKey;
 
 // HIGH-END FASHION STYLE GUIDELINES WITH MAXIMUM QUALITY (Face Consistency Enhanced)
 const HIGH_END_STYLE_PROMPT = `
@@ -79,7 +79,7 @@ const getFirebase = () => {
     try {
       const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
       const firebaseConfig = JSON.parse(configString);
-      
+
       if (Object.keys(firebaseConfig).length > 0) {
         firebaseApp = initializeApp(firebaseConfig);
         firebaseAuth = getAuth(firebaseApp);
@@ -93,7 +93,7 @@ const getFirebase = () => {
 
         firebaseDb = initializeFirestore(firebaseApp, {
           localCache: memoryLocalCache(),
-          experimentalForceLongPolling: true, 
+          experimentalForceLongPolling: true,
         });
       }
     } catch (error) {
@@ -152,7 +152,7 @@ const compressImage = (dataUrl, maxWidth = 1024, quality = 0.75) => {
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, width, height);
       resolve(canvas.toDataURL('image/jpeg', quality));
-      
+
       canvas.width = 0;
       canvas.height = 0;
     };
@@ -245,7 +245,7 @@ const geminiGenerateImage = async ({ primaryModelId, fallbackModelId, apiKey, co
 const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', apiKey, baseImage, detailImages = [], prompt }) => {
   const parts = [{ text: prompt }];
   parts.push({ inlineData: { mimeType: "image/jpeg", data: baseImage.split(',')[1] } });
-  
+
   if (detailImages && detailImages.length > 0) {
     detailImages.forEach(img => {
       if (img) parts.push({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } });
@@ -258,9 +258,9 @@ const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', api
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      contents: [{ role: "user", parts }], 
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } 
+    body: JSON.stringify({
+      contents: [{ role: "user", parts }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
     })
   });
 
@@ -273,7 +273,7 @@ const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', api
 
   const imgPart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
   if (imgPart?.inlineData?.data) return `data:image/jpeg;base64,${imgPart.inlineData.data}`;
-  
+
   const txt = data.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
   throw new Error(txt ? `모델 메시지: ${txt}` : "이미지 보정 결과가 없습니다.");
 };
@@ -284,7 +284,7 @@ const useAuth = () => {
   useEffect(() => {
     const { auth } = getFirebase();
     if (!auth) return;
-    
+
     const initAuth = async () => {
       if (auth.currentUser) {
         setUser(auth.currentUser);
@@ -300,7 +300,7 @@ const useAuth = () => {
         }
       } catch (e) { console.error("Auth init failed:", e); }
     };
-    
+
     initAuth();
     const unsub = onAuthStateChanged(auth, (u) => {
         if(u) {
@@ -348,7 +348,7 @@ const useSettings = (user) => {
     }, [user?.uid]);
 
     const updateSettings = async (newSettings) => {
-        setSettings(newSettings); 
+        setSettings(newSettings);
         if (user) {
             const appId = getAppId();
             const { db } = getFirebase();
@@ -436,7 +436,7 @@ const ImageViewerModal = ({ isOpen, onClose, imageSrc }) => {
 const ReferenceDetailModal = ({ isOpen, onClose, reference, onSave, onDelete }) => {
   const [data, setData] = useState(reference || {});
   const [confirmDelete, setConfirmDelete] = useState(false);
-  
+
   useEffect(() => { if (reference) setData(reference); setConfirmDelete(false); }, [reference]);
 
   if (!isOpen || !reference) return null;
@@ -447,7 +447,7 @@ const ReferenceDetailModal = ({ isOpen, onClose, reference, onSave, onDelete }) 
         <div className="md:w-1/2 bg-gray-100 flex items-center justify-center relative border-r border-black p-4">
              <img src={data.image} className="max-w-full max-h-[60vh] object-contain shadow-md" alt="Reference" />
         </div>
-        
+
         <div className="md:w-1/2 flex flex-col bg-white h-full overflow-hidden">
             <div className="p-6 border-b border-black flex justify-between items-center shrink-0">
                 <div>
@@ -456,7 +456,7 @@ const ReferenceDetailModal = ({ isOpen, onClose, reference, onSave, onDelete }) 
                 </div>
                 <button onClick={onClose} className="hover:bg-gray-100 p-2 rounded-full"><X className="w-6 h-6" /></button>
             </div>
-            
+
             <div className="flex-1 p-6 flex flex-col gap-6 overflow-y-auto custom-scrollbar">
                 <div>
                     <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Brand</label>
@@ -557,7 +557,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
     "보정 없는 RAW 사진 느낌",
     "스냅샷 같은 찰나의 순간"
   ];
-  
+
   const photographerOptions = [
       { id: 'maria_svarbova', name: 'Maria Svarbova', desc: '파스텔,쿨톤,미니멀리즘,플랫 조명', style: 'Shot by Maria Svarbova, pastel colors, minimalist flat lighting, surreal atmosphere, precise facial features' },
       { id: 'nina_ahn', name: 'Nina Ahn', desc: '아날로그 필름', style: 'Shot by Nina Ahn, warm analog film photography, melancholic and dreamy mood, clear facial details' },
@@ -596,11 +596,11 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
     if (!files || files.length === 0) return;
     Array.from(files).forEach(file => {
         const r = new FileReader();
-        r.onload = async () => { 
-            try { 
-                const img = await compressImage(r.result, 1024, 0.8); 
-                setFaceImages(prev => [...prev, img]); 
-            } catch { /* ignore */ } 
+        r.onload = async () => {
+            try {
+                const img = await compressImage(r.result, 1024, 0.8);
+                setFaceImages(prev => [...prev, img]);
+            } catch { /* ignore */ }
         };
         r.readAsDataURL(file);
     });
@@ -628,20 +628,20 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
       const parts = [
         { text: `
           You are a professional Creative Director for a high-end fashion brand.
-          
+
           YOUR TASK:
           1. Analyze the [Reference Image] for its art direction: lighting, color palette, mood, and background.
           2. Analyze the [Target Image] with **EXTREME PRECISION** for the Subject's body and Clothing.
           ${productDetailImages.length > 0 ? '3. Analyze the [Product Detail Images] to extract exact fabric texture, material, and stitching details.' : ''}
           ${faceImages.length > 0 ? '4. Analyze the [Face Image] as the ABSOLUTE source of truth for the facial identity and micro-proportions.' : ''}
-          
+
           CRITICAL ANALYSIS POINTS:
           ${faceImages.length > 0 ? '- **FACE & IDENTITY**: Analyze specific eye shape, nose bridge, lip fullness, jawline, skin texture, and hair flow strictly based on the **[Face Image]** with extreme micro-precision.' : '- **FACE & IDENTITY**: Analyze specific eye shape, nose bridge, lip fullness, jawline, skin texture, and hair flow based on [Target Image].'}
           - **CLOTHING DETAILS**: Analyze fabric texture, exact silhouette, stitching details, and how the fabric drapes based on ${productDetailImages.length > 0 ? '[Target Image] AND [Product Detail Images]' : '[Target Image]'}.
-          
+
           OUTPUT GOAL:
           Write a detailed image generation prompt in **KOREAN (한국어)**.
-          
+
           **CRITICAL**: The prompt MUST START with the following IDENTITY LOCK instruction (copy exactly):
           ---
           [아이덴티티 고정 지시]
@@ -650,7 +650,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
           - 헤어스타일 및 머리카락 질감 그대로 유지
           - 새로운 인물 생성 절대 금지, 소스 이미지의 인물과 완벽히 일치해야 함
           ---
-          
+
           Then, structure the rest of the prompt into these categories:
           1. **전체 분위기 (Mood)**: Based on [Reference Image].
           2. **배경 (Background)**: Based on [Reference Image].
@@ -677,14 +677,14 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
       }
 
       const response = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`, 
+        `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contents: [{ role: 'user', parts }] })
         }
       );
-      
+
       const data = await response.json();
       if (data.error) throw new Error(`API Error: ${data.error.message}`);
 
@@ -806,12 +806,28 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
       }
 
-      let var3Desc = "Variation 3: Eye-level Close-up shot (head and shoulders) in the EXACT SAME lighting and background environment. The camera is exactly at the subject's eye level, focusing intimately on the face and upper body details.";
-      let var4Desc = "Variation 4: High-angle Close-up shot in the EXACT SAME lighting and background environment. The camera is positioned above the subject, looking down at the face and upper body, creating a dynamic perspective.";
+      let var3Desc = "Variation 3: Waist-up medium shot (framing from the waist line up to the top of the head) in the EXACT SAME lighting and background environment. The camera is at chest-to-eye level. The frame MUST cut off precisely at the waistline — do NOT zoom in closer than the waist, and do NOT include the legs. This shows both the face and upper body styling naturally.";
+
+      const var4AnglePool = [
+          "low-angle shot (camera positioned below chest level, tilted upward toward the subject, creating a powerful upward perspective)",
+          "side profile shot (strict 90-degree side view of the subject, showing the full silhouette from the side)",
+          "three-quarter back view (camera positioned behind the subject at a 45-degree angle, showing about 25% of the face over the shoulder)",
+          "dutch angle shot (camera tilted 10-15 degrees off horizontal for a dynamic editorial composition, full body framing)",
+          "over-the-shoulder candid perspective (camera just behind and above one shoulder, looking at what the subject sees, with the subject partially in frame)",
+          "extreme wide shot (the subject is small within a large frame emphasizing the environment, full body with generous negative space)"
+      ];
+      let var4Desc = `Variation 4: ${var4AnglePool[Math.floor(Math.random() * var4AnglePool.length)]} in the EXACT SAME lighting and background environment. Capture a unique creative perspective distinctly different from the first three variations.`;
 
       if (targetFocus === 'lower') {
           var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
-          var4Desc = "Variation 4: High-angle Lower body shot in the EXACT SAME lighting and background environment. The camera is positioned above the waist, looking down at the pants/skirt and legs, creating a dynamic focus on the lower garments.";
+          const var4LowerPool = [
+              "low-angle lower body shot (camera at ankle level, tilted upward along the legs, emphasizing length and silhouette of the pants/skirt)",
+              "side profile lower body shot (strict 90-degree side view of the pants/skirt showing the full drape and silhouette)",
+              "three-quarter back view of the lower body (camera behind the subject at a 45-degree angle, showing the back fit and fall of the garment)",
+              "dutch angle lower body shot (camera tilted 10-15 degrees off horizontal, dynamic editorial framing of the legs and garment)",
+              "walking-motion candid lower body shot (captured mid-stride from a slight angle, showing natural movement of the fabric)"
+          ];
+          var4Desc = `Variation 4: ${var4LowerPool[Math.floor(Math.random() * var4LowerPool.length)]} in the EXACT SAME lighting and background environment. Capture a unique creative perspective distinctly different from the first three variations.`;
       }
 
       const lookbookVariations = [
@@ -827,13 +843,13 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
                   await delay(i * 1500); // API Rate Limit 방지를 위한 지연
                   const localParts = [...parts];
                   localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\nCRITICAL SCENE LOCK: The lighting, shadows, and background MUST remain mathematically identical to the other variations. ONLY change the camera angle or pose. Maintain a slightly unique, natural micro-expression while STRICTLY adhering to the Three Pillars.` };
-                  
-                  const { dataUrl } = await geminiGenerateImage({ 
-                    primaryModelId: MODEL_OPTIONS.PRO, 
-                    fallbackModelId: null, 
-                    apiKey: settings.apiKey || DEFAULT_API_KEY, 
-                    contentsParts: localParts, 
-                    aspectRatio, 
+
+                  const { dataUrl } = await geminiGenerateImage({
+                    primaryModelId: MODEL_OPTIONS.PRO,
+                    fallbackModelId: null,
+                    apiKey: settings.apiKey || DEFAULT_API_KEY,
+                    contentsParts: localParts,
+                    aspectRatio,
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
                   resolve(dataUrl);
@@ -853,13 +869,13 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
 
       setGeneratedImages(successfulImages);
       setCurrentImgIndex(0);
-      
+
       if (successfulImages.length < 4) {
           showNotification(`4장 중 ${successfulImages.length}장만 생성되었습니다.`);
       } else {
           showNotification("4장의 화보컷이 성공적으로 생성되었습니다.");
       }
-      
+
     } catch(e) { showNotification(String(e.message || e), 'error'); }
     finally { setIsGenerating(false); }
   };
@@ -868,12 +884,12 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
     <div className="flex flex-row h-full bg-white relative">
       <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-gray-50">
         <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-          
+
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span><span className="text-sm font-bold uppercase truncate">{reference.name}</span></div>
             <div className="flex-1 border border-black bg-white p-2 relative min-h-[400px]"><img src={reference.image} className="w-full h-full object-contain" alt="Style Reference" /></div>
           </div>
-          
+
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1 mb-2">
                 <div className="flex items-center gap-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Body & Clothes)</span></div>
@@ -915,7 +931,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
                 <div className="flex items-center gap-2"><span className="bg-gray-800 text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Face Detail)</span></div>
                 <span className="text-[11px] text-gray-500 font-bold uppercase">이목구비 일관성을 위한 다각도 얼굴 사진 (다중 선택 가능)</span>
             </div>
-            
+
             {faceImages.length > 0 ? (
                 <div className="flex-1 flex flex-col gap-2 border-2 border-dashed border-gray-400 bg-white p-2 min-h-[400px]">
                     <div className="flex-1 w-full h-full relative border border-gray-200">
@@ -944,21 +960,21 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
           </div>
         </div>
       </div>
-      
+
       <div className="w-1/2 bg-white border-l border-black flex flex-col z-20 shadow-xl shrink-0 h-full">
         <div className="h-16 px-6 border-b border-black flex items-center justify-between shrink-0">
             <h2 className="text-xl font-black uppercase">Generator</h2>
             <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
-          
+
           {generatedImages.length > 0 && (
             <div className="flex flex-col gap-4 animate-fade-in border-b-2 border-black pb-8 mb-2">
               <div className="flex items-center gap-2 mb-1"><CheckCircle2 className="w-5 h-5 text-black" /><span className="text-sm font-bold uppercase text-black">Generation Complete ({currentImgIndex + 1}/{generatedImages.length})</span></div>
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
                 <img src={generatedImages[currentImgIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
-                
+
                 {generatedImages.length > 1 && (
                   <>
                     <button onClick={(e) => { e.stopPropagation(); setCurrentImgIndex(p => Math.max(0, p - 1)); }} disabled={currentImgIndex === 0} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
@@ -990,7 +1006,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
                         {prompt ? '이목구비 고정 강화 재생성' : 'AI 프롬프트 초안 생성'}
                     </button>
                 </div>
-                
+
                 <div className="flex flex-col gap-1.5 mb-2 border p-2 bg-gray-50/50">
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-[10px] font-bold text-gray-400 w-12 shrink-0 uppercase tracking-wider">스타일</span>
@@ -1004,7 +1020,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
 
                 <textarea value={prompt || ''} onChange={(e) => setPrompt(e.target.value)} className="w-full h-32 p-3 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed" placeholder="여기에 지시사항을 입력하세요..." />
             </div>
-            
+
             <div className="flex flex-col gap-2 border-t border-dashed border-gray-300 pt-4 mt-[-8px]">
                 <span className="text-xs font-bold uppercase text-gray-500 flex items-center gap-1"><MessageSquarePlus className="w-4 h-4"/> AI Assistance</span>
                 <div className="flex gap-2">
@@ -1042,7 +1058,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
                     ))}
                 </div>
             </div>
-              
+
             <button onClick={handleGenerate} disabled={isGenerating || !targetImage || !prompt} className={`w-full text-white py-4 font-bold text-base uppercase mt-2 hover:opacity-90 disabled:opacity-50 flex flex-col items-center justify-center gap-1 ${generatedImages.length > 0 ? 'bg-gray-800' : 'bg-black'}`}>
                 {isGenerating ? (
                     <><Loader2 className="w-5 h-5 animate-spin" /> <span>{generatedImages.length > 0 ? '다시 생성 중 (4장)...' : '생성 중 (4장)...'}</span></>
@@ -1055,7 +1071,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
                 )}
             </button>
           </div>
-          
+
         </div>
       </div>
       <ImageViewerModal isOpen={showZoomModal} onClose={() => setShowZoomModal(false)} imageSrc={generatedImages[currentImgIndex]} />
@@ -1075,7 +1091,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
   const [mainItemId, setMainItemId] = useState(1);
   const [mainItemDetails, setMainItemDetails] = useState([]);
   const [fittingPrompt, setFittingPrompt] = useState('');
-  const [bgTone, setBgTone] = useState('bright'); 
+  const [bgTone, setBgTone] = useState('bright');
   const [customBgImage, setCustomBgImage] = useState(null);
   const [generatedFits, setGeneratedFits] = useState([]);
   const [currentFitIndex, setCurrentFitIndex] = useState(0);
@@ -1084,10 +1100,10 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
   const fittingSnippets = [
       "Full Body이미지와 배경색,조명 동일하게",
-      "바지는 매우 길고 와이드해서 신발 위에 주름이 약간 잡혀있다.", 
-      "매우 루즈한 오버핏 연출", 
-      "드롭숄더", 
-      "극도의 오버핏", 
+      "바지는 매우 길고 와이드해서 신발 위에 주름이 약간 잡혀있다.",
+      "매우 루즈한 오버핏 연출",
+      "드롭숄더",
+      "극도의 오버핏",
       "벌룬 배럴핏"
   ];
 
@@ -1181,7 +1197,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       } else if (bgTone === 'dark') {
           bgToneDesc = "Medium grey studio seamless backdrop. Slightly moody and deep, but NOT pitch black. STRICTLY MAINTAIN SOLID MEDIUM GREY.";
       }
-      
+
       let lightDesc = "Clean studio natural light with both main and bounce/fill lights evenly distributed. Soft, and clear illumination across the whole model. LIGHTING ANGLE AND INTENSITY ARE LOCKED.";
 
       let detailDesc = "";
@@ -1217,7 +1233,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                   const baseParts = [
                     { text: `
                       TASK: High-Fidelity Virtual Try-On & Identity Compositing with **ABSOLUTE SUBJECT PRESERVATION**.
-                      
+
                       ROLE: You are an expert Image Compositor. You COMBINE the face from Image [1] with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+].
                       ${customBgInstruction}
                       ${detailInputText}
@@ -1240,26 +1256,26 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
                       DIRECTOR'S NOTES:
                       "${fittingPrompt}"
-                      
+
                       ${HIGH_END_STYLE_PROMPT}
                     ` },
-                    { inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } }, 
+                    { inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } },
                     { inlineData: { mimeType: "image/jpeg", data: compBody.split(',')[1] } }
                   ];
-                  
+
                   let parts = baseParts.concat(compItems.map(item => ({ inlineData: { mimeType: "image/jpeg", data: item.data.split(',')[1] } })));
                   parts = parts.concat(compDetails.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } })));
-                  
+
                   if (bgTone === 'custom' && compCustomBg) {
                       parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
                   }
 
-                  const { dataUrl } = await geminiGenerateImage({ 
-                    primaryModelId: MODEL_OPTIONS.PRO, 
-                    fallbackModelId: null, 
-                    apiKey: settings.apiKey || DEFAULT_API_KEY, 
-                    contentsParts: parts, 
-                    aspectRatio: '3:4', 
+                  const { dataUrl } = await geminiGenerateImage({
+                    primaryModelId: MODEL_OPTIONS.PRO,
+                    fallbackModelId: null,
+                    apiKey: settings.apiKey || DEFAULT_API_KEY,
+                    contentsParts: parts,
+                    aspectRatio: '3:4',
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
                   resolve(dataUrl);
@@ -1293,7 +1309,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
     <div className="flex flex-row h-full bg-white">
       <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-gray-50 border-r border-black">
         <div className="max-w-4xl mx-auto w-full flex flex-col gap-8">
-          
+
           <div>
             <h3 className="text-xl font-black uppercase mb-2 flex items-center gap-2"><UserCheck className="w-6 h-6" /> Model Source</h3>
             <p className="text-sm text-gray-600 mb-4 font-medium">동일한 모델의 2장 사진을 업로드하세요. AI가 얼굴과 전신을 하나의 모델로 합성합니다.</p>
@@ -1373,7 +1389,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
             {/* 4. Styling Notes */}
             <div>
                <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Highlighter className="w-6 h-6" /> Styling Director Notes</h3>
-               
+
                <div className="mb-4 bg-gray-50 border border-gray-200 p-4">
                   <span className="text-[11px] font-bold text-black uppercase flex items-center gap-1 mb-3">
                      <Tag className="w-3 h-3"/> 메인 상품 디테일 컷 (최대 3장)
@@ -1404,11 +1420,11 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                  ))}
                </div>
                <div className="flex gap-4 items-stretch">
-                   <textarea 
-                      value={fittingPrompt || ''} 
-                      onChange={(e) => setFittingPrompt(e.target.value)} 
-                      className="flex-1 h-32 p-4 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed overflow-y-auto resize-none" 
-                      placeholder="예: 모자는 푹 눌러쓰고, 신발은 스포티하게 연출해주세요..." 
+                   <textarea
+                      value={fittingPrompt || ''}
+                      onChange={(e) => setFittingPrompt(e.target.value)}
+                      className="flex-1 h-32 p-4 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed overflow-y-auto resize-none"
+                      placeholder="예: 모자는 푹 눌러쓰고, 신발은 스포티하게 연출해주세요..."
                     />
                     <button onClick={handleGenerateFit} disabled={isGenerating || !faceImage || !bodyImage} className={`w-36 text-white font-bold text-base uppercase transition-all flex flex-col items-center justify-center gap-1 ${generatedFits.length > 0 ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
                         {isGenerating ? (
@@ -1434,7 +1450,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
-          
+
           {generatedFits.length > 0 ? (
             <div className="flex flex-col gap-4 animate-fade-in border-b-2 border-black pb-8">
               <div className="flex items-center gap-2 mb-1">
@@ -1447,7 +1463,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
                 <img src={generatedFits[currentFitIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated Fit" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
-                
+
                 {generatedFits.length > 1 && (
                   <>
                     <button onClick={(e) => { e.stopPropagation(); setCurrentFitIndex(p => Math.max(0, p - 1)); }} disabled={currentFitIndex === 0} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
@@ -1484,10 +1500,10 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 const ProductStudioGenerator = ({ settings, showNotification }) => {
   const [productImage, setProductImage] = useState(null);
   const [customBgImage, setCustomBgImage] = useState(null);
-  
+
   const [selectedBg, setSelectedBg] = useState('whiteboard');
   const [selectedLighting, setSelectedLighting] = useState('softbox');
-  
+
   const [mainLightDir, setMainLightDir] = useState('top_left');
   const [subLightDir, setSubLightDir] = useState(null);
   const [lightSelectMode, setLightSelectMode] = useState('main'); // 'main' or 'sub'
@@ -1495,7 +1511,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
   const [cameraAngle, setCameraAngle] = useState('top_down');
   const [cameraDir, setCameraDir] = useState('center');
   const [selectedCamera, setSelectedCamera] = useState('sony');
-  
+
   const [prompt, setPrompt] = useState('');
   const [generatedImage, setGeneratedImage] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1540,8 +1556,8 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       if (subLightDir === id) setSubLightDir(null);
       setMainLightDir(id);
     } else {
-      if (mainLightDir === id) return; 
-      if (subLightDir === id) setSubLightDir(null); 
+      if (mainLightDir === id) return;
+      if (subLightDir === id) setSubLightDir(null);
       else setSubLightDir(id);
     }
   };
@@ -1556,12 +1572,12 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
   const handleImageUpload = async (file, type) => {
     if (!file) return;
     const r = new FileReader();
-    r.onload = async () => { 
-        try { 
-            const img = await compressImage(r.result, 1024, 0.8); 
+    r.onload = async () => {
+        try {
+            const img = await compressImage(r.result, 1024, 0.8);
             if (type === 'product') setProductImage(img);
             if (type === 'customBg') setCustomBgImage(img);
-        } catch { /* ignore */ } 
+        } catch { /* ignore */ }
     };
     r.readAsDataURL(file);
   };
@@ -1583,7 +1599,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     setIsGenerating(true);
     try {
       const compProduct = await compressImage(productImage, 1024, 0.8);
-      
+
       let bgDesc = "";
       if (selectedBg === 'whiteboard') bgDesc = "clean studio whiteboard background, pure white, infinite white seamless backdrop";
       else if (selectedBg === 'blackboard') bgDesc = "clean dark blackboard background, pure black, dark minimalist matte surface, sophisticated dark mood";
@@ -1616,7 +1632,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
       const mainDirInfo = getDirectionKeywords(mainLightDir);
       let lightDirDesc = `MAIN LIGHT: Positioned strictly at the ${mainDirInfo.origin}. Bright highlights must appear on the ${mainDirInfo.origin.split(' ')[0]} of the product. Prominent, distinct shadows MUST be cast towards the ${mainDirInfo.shadow}.`;
-      
+
       if (subLightDir) {
           const subDirInfo = getDirectionKeywords(subLightDir);
           lightDirDesc += `\nFILL LIGHT: A secondary, much softer and weaker fill light (25% intensity) is positioned at the ${subDirInfo.origin}, slightly lifting the shadows but NOT overpowering the main shadow direction.`;
@@ -1645,26 +1661,26 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       const parts = [
         { text: `
             TASK: Pure Product Photography (Flat-Lay Setup).
-            
+
             CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT.
             CRITICAL RULE 2: SCENE SETUP - The product is lying completely FLAT on the selected background surface.
             CRITICAL RULE 3: STRICT LIGHTING PHYSICS - Shadows MUST obey the Lighting Direction exactly. Look at the LIGHTING DIRECTION section and force the shadows to fall in the stated direction.
-            
+
             RULE 1: PRODUCT IDENTITY & TEXTURE LOCK (100% Match Required - 최우선 순위: 제품 형태, 디테일, 원단 질감 완벽 보존)
             - The generated image MUST preserve the exact shape, color, typography, and branding details of the product in the [Input Image 1].
             - TEXTURE PRESERVATION: You MUST perfectly retain the micro-texture, fabric weave, wrinkles, and material properties of the original product. Do NOT apply AI smoothing, plastic-like filters, or illustrative styles. It must look like raw, unedited, hyper-realistic photography.
             - FRAMING & MARGINS: Zoom out the camera slightly to provide about 10% MORE negative space (margins) around the product than standard framing. The main product should be proportionally smaller within the frame to allow breathing room.
-            
+
             RULE 2: SHAPE & FOLD PRESERVATION
             ${shapePreservationDesc}
-            
+
             ART DIRECTION:
             BACKGROUND: ${bgDesc}
             LIGHTING SETUP: ${lightDesc}
             LIGHTING DIRECTION: ${lightDirDesc}
             CAMERA ANGLE: ${angleDesc}
             CAMERA MODEL: ${camDesc}
-            
+
             ${HIGH_END_STYLE_PROMPT}
         ` },
         { inlineData: { mimeType: "image/jpeg", data: compProduct.split(',')[1] } }
@@ -1675,36 +1691,36 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
       }
 
-      const { dataUrl } = await geminiGenerateImage({ 
-        primaryModelId: MODEL_OPTIONS.PRO, 
-        fallbackModelId: null, 
-        apiKey: settings.apiKey || DEFAULT_API_KEY, 
-        contentsParts: parts, 
-        aspectRatio: '1:1', 
+      const { dataUrl } = await geminiGenerateImage({
+        primaryModelId: MODEL_OPTIONS.PRO,
+        fallbackModelId: null,
+        apiKey: settings.apiKey || DEFAULT_API_KEY,
+        contentsParts: parts,
+        aspectRatio: '1:1',
         qualityMode: settings.highRes ? 'ultra' : 'std'
       });
       setGeneratedImage(dataUrl);
-      
+
       showNotification("제품컷이 성공적으로 생성되었습니다.");
-    } catch(e) { 
-        showNotification(String(e.message || e), 'error'); 
-    } finally { 
-        setIsGenerating(false); 
+    } catch(e) {
+        showNotification(String(e.message || e), 'error');
+    } finally {
+        setIsGenerating(false);
     }
   };
 
   return (
     <div className="flex flex-row h-full bg-white relative">
-      
+
       {/* Left Panel: Original Image & Controls (Scrollable) */}
       <div className="w-[600px] shrink-0 border-r border-black bg-gray-50 flex flex-col h-full z-10 shadow-xl overflow-hidden">
         <div className="h-16 px-5 border-b border-black bg-white flex items-center gap-2 sticky top-0 z-20 shrink-0">
           <Camera className="w-5 h-5"/>
           <h2 className="text-lg font-black uppercase tracking-tighter">Studio Controls</h2>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-8 custom-scrollbar">
-          
+
           {/* 0. Original Product Upload */}
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-bold uppercase flex items-center gap-2 text-black bg-gray-200 w-fit px-2 py-1"><Package className="w-4 h-4" /> 0. 원본 제품 이미지</h3>
@@ -1755,13 +1771,13 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             </div>
             <div className="bg-white border-2 border-gray-200 p-4 flex flex-col items-center">
                 <div className="flex gap-2 mb-4 w-full justify-center">
-                    <button 
+                    <button
                         onClick={() => setLightSelectMode('main')}
                         className={`px-3 py-1.5 text-[11px] font-bold border-2 rounded-full transition-colors flex items-center gap-1 ${lightSelectMode === 'main' ? 'bg-black border-black text-white' : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200'}`}
                     >
                         <span className="w-2 h-2 rounded-full bg-white"></span> 메인 조명 위치
                     </button>
-                    <button 
+                    <button
                         onClick={() => setLightSelectMode('sub')}
                         className={`px-3 py-1.5 text-[11px] font-bold border-2 rounded-full transition-colors flex items-center gap-1 ${lightSelectMode === 'sub' ? 'bg-gray-600 border-gray-600 text-white' : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200'}`}
                     >
@@ -1835,7 +1851,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
                 ))}
             </div>
           </div>
-          
+
           {/* 5. Custom Prompt / Additional Comments */}
           <div className="flex flex-col gap-2 pt-2">
             <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 추가 코멘트 (선택)</h3>
@@ -1846,17 +1862,17 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
                 </button>
               ))}
             </div>
-            <textarea 
-                value={prompt || ''} 
-                onChange={(e) => setPrompt(e.target.value)} 
-                className="w-full h-24 p-3 border-2 border-gray-200 text-sm focus:border-black outline-none bg-white font-medium resize-none transition-colors" 
-                placeholder="예: 구겨진 부분을 반듯하게 정돈해주세요. 그림자를 더 길게 빼주세요.&#13;&#10;(입력하지 않으면 원본의 구겨짐/형태가 그대로 유지됩니다)" 
+            <textarea
+                value={prompt || ''}
+                onChange={(e) => setPrompt(e.target.value)}
+                className="w-full h-24 p-3 border-2 border-gray-200 text-sm focus:border-black outline-none bg-white font-medium resize-none transition-colors"
+                placeholder="예: 구겨진 부분을 반듯하게 정돈해주세요. 그림자를 더 길게 빼주세요.&#13;&#10;(입력하지 않으면 원본의 구겨짐/형태가 그대로 유지됩니다)"
             />
           </div>
 
           <div className="pb-10"></div> {/* Scroll spacing padding */}
         </div>
-        
+
         {/* Generate Action Area Fixed Bottom */}
         <div className="p-5 border-t border-black bg-white sticky bottom-0">
             <button onClick={handleGenerate} disabled={isGenerating || !productImage} className={`w-full text-white py-4 font-bold text-base uppercase transition-opacity flex items-center justify-center gap-2 ${generatedImage ? 'bg-gray-800 hover:bg-black' : 'bg-black hover:bg-gray-800'} disabled:opacity-50`}>
@@ -1868,7 +1884,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
             </button>
         </div>
       </div>
-      
+
       {/* Right Panel: Large Result Display */}
       <div className="flex-1 bg-gray-100 flex flex-col relative">
          <div className="h-16 px-6 border-b border-black bg-white shrink-0 flex justify-between items-center">
@@ -1879,7 +1895,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
                  </div>
              )}
          </div>
-         
+
          <div className="flex-1 p-8 flex items-center justify-center relative overflow-hidden">
             {generatedImage ? (
                 <div className="w-full h-full flex items-center justify-center bg-transparent cursor-pointer group" onClick={() => setShowZoomModal(true)}>
@@ -1907,54 +1923,54 @@ const UploadModal = ({ isOpen, onClose, onUpload, uploadSettings, setUploadSetti
   const [files, setFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
-  
-  useEffect(() => { 
-      if (isOpen) { 
-          if(uploadSettings.initialFiles?.length > 0) setFiles(uploadSettings.initialFiles); 
-          else setFiles([]); 
-      } 
-  }, [isOpen, uploadSettings.initialFiles]); 
-  
-  const handleFileChange = (e) => { 
-      const newFiles = Array.from(e.target.files).map(f => ({ fileObject: f, name: f.name, preview: URL.createObjectURL(f) })); 
-      setFiles(prev => [...prev, ...newFiles]); 
-      e.target.value = ''; 
+
+  useEffect(() => {
+      if (isOpen) {
+          if(uploadSettings.initialFiles?.length > 0) setFiles(uploadSettings.initialFiles);
+          else setFiles([]);
+      }
+  }, [isOpen, uploadSettings.initialFiles]);
+
+  const handleFileChange = (e) => {
+      const newFiles = Array.from(e.target.files).map(f => ({ fileObject: f, name: f.name, preview: URL.createObjectURL(f) }));
+      setFiles(prev => [...prev, ...newFiles]);
+      e.target.value = '';
   };
-  
-  const handleConfirm = async () => { 
-    if (files.length === 0) return; 
-    setIsUploading(true); 
-    const processed = []; 
+
+  const handleConfirm = async () => {
+    if (files.length === 0) return;
+    setIsUploading(true);
+    const processed = [];
     try {
-        for (const f of files) { 
-            let imgDataUrl = f.preview; 
-            
-            if (f.fileObject) { 
+        for (const f of files) {
+            let imgDataUrl = f.preview;
+
+            if (f.fileObject) {
                 const reader = new FileReader();
                 imgDataUrl = await new Promise((resolve, reject) => {
                     reader.onload = () => resolve(reader.result);
                     reader.onerror = reject;
                     reader.readAsDataURL(f.fileObject);
                 });
-                imgDataUrl = await compressImage(imgDataUrl, 1024, 0.8); 
-            } 
-            
+                imgDataUrl = await compressImage(imgDataUrl, 1024, 0.8);
+            }
+
             processed.push({
-                name: f.name.replace(/\.[^/.]+$/, "").toUpperCase(), 
+                name: f.name.replace(/\.[^/.]+$/, "").toUpperCase(),
                 image: imgDataUrl,
-                prompt: f.prompt || '' 
-            }); 
-        } 
-        await onUpload(processed); 
+                prompt: f.prompt || ''
+            });
+        }
+        await onUpload(processed);
     } catch (error) {
         console.error("Processing failed:", error);
     } finally {
-        setIsUploading(false); 
-        setFiles([]); 
-        onClose(); 
+        setIsUploading(false);
+        setFiles([]);
+        onClose();
     }
   };
-  
+
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-white/90 z-50 flex items-center justify-center p-4">
@@ -1990,7 +2006,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm }) => {
 const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
   const [key, setKey] = useState(settings.apiKey || '');
   useEffect(() => { setKey(settings.apiKey || ''); }, [settings.apiKey, isOpen]);
-  
+
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
@@ -2007,13 +2023,13 @@ const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
 
 const Sidebar = ({ currentView, onNavigate, onExport, onImport, isProcessing }) => {
   const importInputRef = useRef(null);
-  const handleImportClick = (e) => { 
-      if (isProcessing) return; 
-      const file = e.target.files[0]; 
+  const handleImportClick = (e) => {
+      if (isProcessing) return;
+      const file = e.target.files[0];
       if (file) {
-          onImport(file); 
+          onImport(file);
       }
-      e.target.value = ''; 
+      e.target.value = '';
     };
 
   return (
@@ -2037,10 +2053,10 @@ const Sidebar = ({ currentView, onNavigate, onExport, onImport, isProcessing }) 
 };
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('lookbook'); 
+  const [currentView, setCurrentView] = useState('lookbook');
   const [selectedReference, setSelectedReference] = useState(null);
-  const [editingReference, setEditingReference] = useState(null); 
-  
+  const [editingReference, setEditingReference] = useState(null);
+
   const [lookbookBrand, setLookbookBrand] = useState('All');
   const [notification, setNotification] = useState(null);
 
@@ -2052,7 +2068,7 @@ export default function App() {
   const [modals, setModals] = useState({ uploadRef: false, delete: false, settings: false });
   const [uploadSettings, setUploadSettings] = useState({ brand: 'EZ' });
 
-  useEffect(() => { 
+  useEffect(() => {
     if (DEFAULT_API_KEY && !settings.apiKey) {
         setSettings(prev => ({ ...prev, apiKey: DEFAULT_API_KEY }));
     }
@@ -2138,12 +2154,12 @@ export default function App() {
         @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
 
-      <Sidebar 
-        currentView={currentView} 
-        onNavigate={(view) => setCurrentView(view)} 
-        onExport={handleExportData} 
-        onImport={handleImportData} 
-        isProcessing={isGlobalProcessing} 
+      <Sidebar
+        currentView={currentView}
+        onNavigate={(view) => setCurrentView(view)}
+        onExport={handleExportData}
+        onImport={handleImportData}
+        isProcessing={isGlobalProcessing}
       />
       <main className="flex-1 flex flex-col overflow-hidden relative min-w-0 bg-white">
         <header className="h-16 bg-white border-b border-black flex items-center justify-between px-6 shrink-0 z-10">
@@ -2164,9 +2180,9 @@ export default function App() {
 
           {(currentView === 'lookbook' || currentView === 'generator') && (
             <div className="w-full h-full flex flex-col relative">
-                <LookbookHeader 
-                    selectedBrand={lookbookBrand} 
-                    onSelectBrand={(b) => { 
+                <LookbookHeader
+                    selectedBrand={lookbookBrand}
+                    onSelectBrand={(b) => {
                         setLookbookBrand(b);
                         if (currentView === 'generator') setCurrentView('lookbook');
                     }}
@@ -2174,12 +2190,12 @@ export default function App() {
                 />
                 <div className="flex-1 overflow-hidden relative">
                      {currentView === 'lookbook' && (
-                        <LookbookDashboardGrid 
-                            references={references} 
+                        <LookbookDashboardGrid
+                            references={references}
                             selectedBrand={lookbookBrand}
-                            onSelectReference={(r) => { setSelectedReference(r); setCurrentView('generator'); }} 
-                            onDeleteReference={handleDeleteReference} 
-                            onEditReference={setEditingReference} 
+                            onSelectReference={(r) => { setSelectedReference(r); setCurrentView('generator'); }}
+                            onDeleteReference={handleDeleteReference}
+                            onEditReference={setEditingReference}
                         />
                      )}
                      {currentView === 'generator' && selectedReference && (
@@ -2204,11 +2220,11 @@ export default function App() {
           </div>
         )}
       </main>
-      
+
       {/* Modals */}
       <UploadModal isOpen={modals.uploadRef} onClose={() => setModals(p => ({ ...p, uploadRef: false }))} onUpload={handleUploadReference} uploadSettings={uploadSettings} setUploadSettings={setUploadSettings} title="레퍼런스 등록 (LOOKBOOK)" />
       <SettingsModal isOpen={modals.settings} onClose={() => setModals(p => ({ ...p, settings: false }))} settings={settings} onUpdate={setSettings} />
-      
+
       {/* Detail Modals */}
       <ReferenceDetailModal isOpen={!!editingReference} onClose={() => setEditingReference(null)} reference={editingReference} onSave={handleReferenceUpdate} onDelete={handleReferenceDeleteWithModal} />
     </div>
