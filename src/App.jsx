@@ -531,7 +531,8 @@ const LookbookDashboardGrid = ({ references, selectedBrand, onSelectReference, o
   );
 };
 
-const LookbookGenerator = ({ reference, onBack, settings, showNotification }) => {
+const LookbookGenerator = ({ reference, references = [], onBack, settings, showNotification }) => {
+  const [currentReference, setCurrentReference] = useState(reference);
   const [targetImage, setTargetImage] = useState(null);
   const [productDetailImages, setProductDetailImages] = useState([]); // 최대 3장 제품 디테일
   const [faceImages, setFaceImages] = useState([]); // 다중 얼굴 이미지 지원
@@ -546,6 +547,8 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
   const [targetFocus, setTargetFocus] = useState('upper'); // 'upper' (상의/전신) or 'lower' (하의/바지)
   const [showZoomModal, setShowZoomModal] = useState(false);
   const [selectedPhotographer, setSelectedPhotographer] = useState('');
+  const [showSwapModal, setShowSwapModal] = useState(false);
+  const [swapBrandFilter, setSwapBrandFilter] = useState('All');
 
   const lookbookSnippets = [
     "이목구비 완벽 고정",
@@ -617,12 +620,12 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
   };
 
   const generateDraftPrompt = async () => {
-    if (!targetImage || !reference) return showNotification("의상/전신 타겟 이미지와 레퍼런스 이미지가 모두 필요합니다.", "error");
+    if (!targetImage || !currentReference) return showNotification("의상/전신 타겟 이미지와 레퍼런스 이미지가 모두 필요합니다.", "error");
     setIsGeneratingPrompt(true);
     try {
       const apiKeyToUse = settings?.apiKey || DEFAULT_API_KEY;
 
-      const compRef = await compressImage(reference.image, 1024, 0.8);
+      const compRef = await compressImage(currentReference.image, 1024, 0.8);
       const compTarget = await compressImage(targetImage, 1024, 0.8);
 
       const parts = [
@@ -719,7 +722,7 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
     setIsGenerating(true);
     try {
       const compTarget = await compressImage(targetImage, 1024, 0.8);
-      const compRef = await compressImage(reference.image, 1024, 0.8);
+      const compRef = await compressImage(currentReference.image, 1024, 0.8);
 
       let inputImagesText = `
     [IMAGE INPUTS RECOGNITION]
@@ -886,8 +889,19 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
         <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
 
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span><span className="text-sm font-bold uppercase truncate">{reference.name}</span></div>
-            <div className="flex-1 border border-black bg-white p-2 relative min-h-[400px]"><img src={reference.image} className="w-full h-full object-contain" alt="Style Reference" /></div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span>
+              <span className="text-sm font-bold uppercase truncate flex-1">{currentReference.name}</span>
+              <button onClick={() => setShowSwapModal(true)} className="text-[11px] font-bold uppercase bg-white text-black px-3 py-1.5 border border-black hover:bg-black hover:text-white flex items-center gap-1 transition-colors shrink-0" title="레퍼런스 교체">
+                <RefreshCcw className="w-3 h-3" /> 교체
+              </button>
+            </div>
+            <div className="flex-1 border border-black bg-white p-2 relative min-h-[400px] group cursor-pointer" onClick={() => setShowSwapModal(true)}>
+              <img src={currentReference.image} className="w-full h-full object-contain" alt="Style Reference" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
+                <div className="bg-white px-4 py-2 text-xs font-bold uppercase text-black flex items-center gap-1"><RefreshCcw className="w-3 h-3" /> 클릭하여 교체</div>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-col gap-4">
@@ -1075,6 +1089,61 @@ const LookbookGenerator = ({ reference, onBack, settings, showNotification }) =>
         </div>
       </div>
       <ImageViewerModal isOpen={showZoomModal} onClose={() => setShowZoomModal(false)} imageSrc={generatedImages[currentImgIndex]} />
+
+      {showSwapModal && (
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4" onClick={() => setShowSwapModal(false)}>
+          <div className="bg-white w-full max-w-5xl max-h-[85vh] flex flex-col border-2 border-black shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="h-14 px-6 border-b border-black flex items-center justify-between shrink-0">
+              <h2 className="text-lg font-black uppercase tracking-tighter flex items-center gap-2"><RefreshCcw className="w-4 h-4" /> 스타일 베이스 교체</h2>
+              <button onClick={() => setShowSwapModal(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="px-6 py-3 border-b border-black flex items-center gap-4 flex-wrap shrink-0">
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => setSwapBrandFilter('All')} className={`px-3 py-1.5 text-xs font-bold uppercase border ${swapBrandFilter === 'All' ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300'}`}>ALL</button>
+                {FIXED_BRANDS.map(b => (
+                  <button key={b} onClick={() => setSwapBrandFilter(b)} className={`px-3 py-1.5 text-xs font-bold uppercase border ${swapBrandFilter === b ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300'}`}>{b}</button>
+                ))}
+              </div>
+              <label className="ml-auto text-xs font-bold uppercase bg-white text-black px-3 py-1.5 border border-black hover:bg-black hover:text-white cursor-pointer flex items-center gap-1 transition-colors">
+                <UploadCloud className="w-3 h-3" /> 새 이미지 업로드
+                <input type="file" className="hidden" accept="image/*" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const r = new FileReader();
+                  r.onload = async () => {
+                    try {
+                      const img = await compressImage(r.result, 1024, 0.8);
+                      setCurrentReference({ id: `tmp-${Date.now()}`, name: file.name.replace(/\.[^/.]+$/, '').toUpperCase(), image: img, brand: currentReference?.brand || 'EZ' });
+                      setShowSwapModal(false);
+                      showNotification("새 레퍼런스 이미지로 교체되었습니다. (임시 — 저장되지 않음)");
+                    } catch { /* ignore */ }
+                  };
+                  r.readAsDataURL(file);
+                  e.target.value = '';
+                }} />
+              </label>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-2">
+                {references.filter(r => swapBrandFilter === 'All' || r.brand === swapBrandFilter).map(r => (
+                  <div key={r.id} onClick={() => { setCurrentReference(r); setShowSwapModal(false); showNotification("스타일 베이스가 교체되었습니다."); }} className={`aspect-[3/4] border cursor-pointer relative group overflow-hidden ${currentReference?.id === r.id ? 'border-black ring-2 ring-black' : 'border-gray-300 hover:border-black'}`}>
+                    <img src={r.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform" alt={r.name} loading="lazy" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/80 text-white text-[9px] font-bold text-center py-0.5">{r.brand}</div>
+                    {currentReference?.id === r.id && (
+                      <div className="absolute top-1 right-1 bg-black text-white text-[9px] font-bold px-1.5 py-0.5 uppercase">현재</div>
+                    )}
+                  </div>
+                ))}
+                {references.filter(r => swapBrandFilter === 'All' || r.brand === swapBrandFilter).length === 0 && (
+                  <div className="col-span-full text-center py-10 text-gray-400 font-bold text-sm uppercase">해당 브랜드에 등록된 레퍼런스가 없습니다.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -2255,7 +2324,7 @@ export default function App() {
                         />
                      )}
                      {currentView === 'generator' && selectedReference && (
-                        <LookbookGenerator reference={selectedReference} onBack={() => setCurrentView('lookbook')} settings={settings} showNotification={showNotification} />
+                        <LookbookGenerator reference={selectedReference} references={references} onBack={() => setCurrentView('lookbook')} settings={settings} showNotification={showNotification} />
                      )}
                 </div>
             </div>
