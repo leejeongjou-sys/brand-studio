@@ -424,11 +424,166 @@ const useAppData = (user) => {
 // --- UI COMPONENTS ---
 
 const ImageViewerModal = ({ isOpen, onClose, imageSrc }) => {
+  const containerRef = useRef(null);
+  const [scale, setScale] = useState(1);           // absolute scale where 1 = native pixel size
+  const [fitScale, setFitScale] = useState(1);     // scale that makes the image fit the viewport
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, offX: 0, offY: 0 });
+  const [natural, setNatural] = useState({ w: 0, h: 0 });
+  const [loaded, setLoaded] = useState(false);
+
+  // Reset whenever we open a new image
+  useEffect(() => {
+    if (isOpen) {
+      setScale(0);
+      setFitScale(1);
+      setOffset({ x: 0, y: 0 });
+      setNatural({ w: 0, h: 0 });
+      setLoaded(false);
+    }
+  }, [isOpen, imageSrc]);
+
+  const computeFit = (w, h) => {
+    const el = containerRef.current;
+    if (!el || !w || !h) return 1;
+    const rect = el.getBoundingClientRect();
+    // margin so the image doesn't hug the edges
+    const pad = 0.95;
+    return Math.min((rect.width * pad) / w, (rect.height * pad) / h);
+  };
+
+  const handleImgLoad = (e) => {
+    const img = e.currentTarget;
+    const fs = computeFit(img.naturalWidth, img.naturalHeight);
+    setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    setFitScale(fs);
+    setScale(fs);
+    setOffset({ x: 0, y: 0 });
+    setLoaded(true);
+  };
+
+  const minScale = fitScale;
+  const maxScale = Math.max(1, fitScale) * 4; // allow up to 4x native or fit-x4
+
+  const clampScale = (s) => Math.max(minScale, Math.min(maxScale, s));
+
+  const handleWheel = (e) => {
+    if (!loaded) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newScale = clampScale(scale * factor);
+    // Zoom centered on cursor
+    const el = containerRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      const cx = e.clientX - rect.left - rect.width / 2;
+      const cy = e.clientY - rect.top - rect.height / 2;
+      const ratio = newScale / scale;
+      setOffset({
+        x: cx - (cx - offset.x) * ratio,
+        y: cy - (cy - offset.y) * ratio,
+      });
+    }
+    setScale(newScale);
+  };
+
+  const handleMouseDown = (e) => {
+    if (scale <= fitScale + 1e-4) return;
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, offX: offset.x, offY: offset.y };
+  };
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    setOffset({
+      x: dragStart.current.offX + (e.clientX - dragStart.current.x),
+      y: dragStart.current.offY + (e.clientY - dragStart.current.y),
+    });
+  };
+  const handleMouseUp = () => setIsDragging(false);
+
+  const zoomIn = () => setScale(s => clampScale(s * 1.25));
+  const zoomOut = () => {
+    const next = clampScale(scale / 1.25);
+    setScale(next);
+    if (next <= fitScale + 1e-4) setOffset({ x: 0, y: 0 });
+  };
+  const zoomTo100 = () => { setScale(clampScale(1)); setOffset({ x: 0, y: 0 }); };
+  const zoomFit = () => { setScale(fitScale); setOffset({ x: 0, y: 0 }); };
+
+  const handleDownload = () => {
+    if (!imageSrc) return;
+    const link = document.createElement('a');
+    link.href = imageSrc;
+    link.download = `Preview_${Date.now()}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (!isOpen || !imageSrc) return null;
+
+  const zoomPct = Math.round(scale * 100);
+  const canPan = scale > fitScale + 1e-4;
+
   return (
-    <div className="fixed inset-0 bg-black z-[100] flex items-center justify-center animate-fade-in">
-      <button onClick={onClose} className="absolute top-6 right-6 text-white hover:text-gray-300 z-[101]"><X className="w-10 h-10" /></button>
-      <img src={imageSrc} className="h-full w-auto object-contain max-w-full" alt="Full Screen Preview" />
+    <div
+      className="fixed inset-0 bg-black z-[100] flex flex-col animate-fade-in"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      {/* Top bar */}
+      <div className="h-14 px-4 flex items-center justify-between bg-black/90 text-white z-[101] shrink-0">
+        <div className="flex items-center gap-2">
+          <button onClick={zoomOut} className="p-2 hover:bg-white/20 rounded" title="축소"><MinusCircle className="w-5 h-5" /></button>
+          <button onClick={zoomIn} className="p-2 hover:bg-white/20 rounded" title="확대"><PlusCircle className="w-5 h-5" /></button>
+          <span className="text-sm font-bold min-w-[60px] text-center tabular-nums">{loaded ? zoomPct : 0}%</span>
+          <button onClick={zoomFit} className="px-3 py-1 text-[11px] font-bold hover:bg-white/20 rounded border border-white/30">맞춤</button>
+          <button onClick={zoomTo100} className="px-3 py-1 text-[11px] font-bold hover:bg-white/20 rounded border border-white/30">100%</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={handleDownload} className="px-3 py-1.5 text-xs font-bold hover:bg-white/20 rounded border border-white/30 flex items-center gap-1" title="다운로드"><Download className="w-4 h-4" /> 다운로드</button>
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded" title="닫기"><X className="w-6 h-6" /></button>
+        </div>
+      </div>
+
+      {/* Image viewport */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-hidden relative select-none"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        style={{ cursor: canPan ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+      >
+        <img
+          src={imageSrc}
+          alt="Full Screen Preview"
+          onLoad={handleImgLoad}
+          draggable={false}
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            width: natural.w || 'auto',
+            height: natural.h || 'auto',
+            maxWidth: 'none',
+            maxHeight: 'none',
+            transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${loaded ? scale : 1})`,
+            transformOrigin: 'center center',
+            transition: isDragging ? 'none' : 'transform 0.12s ease-out',
+            visibility: loaded ? 'visible' : 'hidden',
+            userSelect: 'none',
+            willChange: 'transform',
+          }}
+        />
+        {/* Helper hint */}
+        {loaded && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 text-white text-[11px] font-bold px-3 py-1 rounded-full pointer-events-none">
+            {canPan ? '드래그로 이동 · 휠로 확대/축소' : '휠로 확대 · 상단 버튼으로 100%까지 줌'}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -988,6 +1143,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
                 <img src={generatedImages[currentImgIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
+                <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-4 h-4 text-black" /></button>
 
                 {generatedImages.length > 1 && (
                   <>
@@ -1546,6 +1702,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
                 <img src={generatedFits[currentFitIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated Fit" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
+                <button onClick={(e) => { e.stopPropagation(); handleDownload(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-4 h-4 text-black" /></button>
 
                 {generatedFits.length > 1 && (
                   <>
@@ -2023,11 +2180,12 @@ ${productRule}
 
          <div className="flex-1 p-8 flex items-center justify-center relative overflow-hidden">
             {generatedImage ? (
-                <div className="w-full h-full flex items-center justify-center bg-transparent cursor-pointer group" onClick={() => setShowZoomModal(true)}>
+                <div className="w-full h-full flex items-center justify-center bg-transparent cursor-pointer group relative" onClick={() => setShowZoomModal(true)}>
                     <img src={generatedImage} className="max-w-full max-h-full object-contain shadow-2xl bg-white" alt="Generated Product Shot" />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/5 pointer-events-none">
                         <Maximize2 className="w-12 h-12 text-black/50 drop-shadow-md" />
                     </div>
+                    <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-5 h-5 text-black" /></button>
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center text-gray-400">
