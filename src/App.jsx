@@ -1739,6 +1739,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
 const ProductStudioGenerator = ({ settings, showNotification }) => {
   const [productImages, setProductImages] = useState([]); // 최대 6장
+  const [productDetailImages, setProductDetailImages] = useState([]); // 디테일컷 최대 3장 (라벨·원단 클로즈업)
   const [customBgImage, setCustomBgImage] = useState(null);
   const [moodReferenceImage, setMoodReferenceImage] = useState(null);
 
@@ -1801,6 +1802,27 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
   const removeProductAt = (idx) => {
     setProductImages(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleDetailCutUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    const available = 3 - productDetailImages.length;
+    if (available <= 0) return showNotification("디테일컷은 최대 3장까지 업로드 가능합니다.", "error");
+    const toProcess = Array.from(files).slice(0, available);
+    for (const file of toProcess) {
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const img = await compressImage(r.result, 1024, 0.8);
+          setProductDetailImages(prev => prev.length < 3 ? [...prev, img] : prev);
+        } catch { /* ignore */ }
+      };
+      r.readAsDataURL(file);
+    }
+  };
+
+  const removeDetailAt = (idx) => {
+    setProductDetailImages(prev => prev.filter((_, i) => i !== idx));
   };
 
   const analyzeMoodReferenceLayout = async (moodImageDataUrl) => {
@@ -1885,8 +1907,10 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     setIsGenerating(true);
     try {
       const compProducts = await Promise.all(productImages.map(img => compressImage(img, 1024, 0.8)));
+      const compDetails = await Promise.all(productDetailImages.map(img => compressImage(img, 1024, 0.8)));
       const isGroup = compProducts.length > 1;
       const productCount = compProducts.length;
+      const detailCount = compDetails.length;
 
       // STEP 1: Pre-analyze the mood reference layout (if provided) so the generation model
       // receives a structured textual blueprint rather than having to infer the layout itself.
@@ -1984,6 +2008,19 @@ ${analysisBlock}
             - ANTI-HALLUCINATION: Do NOT smooth, re-illustrate, simplify, re-weave, or "beautify" any product detail. The output must feel like a high-resolution real photograph of the exact physical item.
             - FRAMING & MARGINS: Zoom out the camera slightly to provide about 10% MORE negative space (margins) around the product than standard framing.`;
 
+      const detailRule = detailCount > 0 ? `
+
+            RULE 1-C: DETAIL CUT REFERENCES (LABEL & FABRIC LOCK — HIGHEST PRIORITY)
+            - ${detailCount} detail close-up image${detailCount > 1 ? 's are' : ' is'} provided as [Input Image ${productCount + 1}${detailCount > 1 ? ` through ${productCount + detailCount}` : ''}] — immediately AFTER the ${productCount} product image${productCount > 1 ? 's' : ''}.
+            - These detail cuts are AUTHORITATIVE sources of truth for the following features, OVERRIDING anything that might appear differently in the main product photo:
+              * LABELS & TEXT — Reproduce every brand label, wash-care tag, hangtag, size tag, and printed text with PIXEL-LEVEL fidelity. Font face, kerning, line spacing, size, ink color, and exact character forms MUST match the detail cut exactly. DO NOT paraphrase, translate, simplify, or re-typeset any text. If a label says "100% COTTON MADE IN KOREA", the output must show exactly "100% COTTON MADE IN KOREA" in the same font.
+              * FABRIC WEAVE & TEXTURE — The thread direction, weave pattern (warp/weft count), knit structure (rib/jersey/cable), leather grain, denim twill angle, linen slub, fleece pile, and all micro-textures shown in the detail image MUST be faithfully reproduced on the corresponding product surface in the final image.
+              * STITCHING & TRIMS — Stitch type (lock/chain/overlock), stitch color, stitch pitch, topstitching pattern, zippers (metal/plastic, teeth size, pull shape), buttons (material, engraving, thread cross pattern), rivets, snaps, eyelets — all copied exactly from the detail cuts.
+              * PRINTS, EMBROIDERY, PATCHES — Reproduce the raster pattern exactly; do not re-draw or simplify.
+            - MATCHING: If ${detailCount > 1 ? 'multiple detail cuts are provided, match each one to the product it visually corresponds to (same color, same fabric family). ' : ''}Apply the detail reference to the appropriate region of the product in the final image.
+            - STRICT PROHIBITION: The detail cut images MUST NOT appear as standalone objects in the final composition. They are ONLY references for micro-detail accuracy applied to the main product${isGroup ? 's' : ''}.`
+        : '';
+
       const parts = [
         { text: `
             TASK: ${taskLine}
@@ -1996,7 +2033,7 @@ ${analysisBlock}
                 ? `Match the camera angle/framing implied by the MOOD REFERENCE LAYOUT BLUEPRINT (e.g. if hanging garments are shown frontally, use a front-facing camera; if flat-lay, use top-down).`
                 : `Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface).`}
             ${moodRefInputText}
-${productRule}
+${productRule}${detailRule}
 
             RULE 2: SHAPE & FOLD PRESERVATION
             ${shapePreservationDesc}
@@ -2008,7 +2045,8 @@ ${productRule}
 
             ${HIGH_END_STYLE_PROMPT}
         ` },
-        ...compProducts.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } }))
+        ...compProducts.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } })),
+        ...compDetails.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } }))
       ];
 
       if (selectedBg === 'custom' && customBgImage) {
@@ -2083,9 +2121,31 @@ ${productRule}
             <input id="product-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => { handleProductUpload(e.target.files); e.target.value = ''; }} />
           </div>
 
-          {/* 1. Background Selection */}
+          {/* 1. Product Detail Cuts (Label & Fabric Close-ups) */}
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">1. 디테일 컷 <span className="text-gray-500 font-medium normal-case">(라벨·원단 클로즈업, 최대 3장)</span></h3>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">라벨 텍스트·원단 조직·재봉선·지퍼/단추 등 근접 촬영 이미지. <b>라벨과 원단을 픽셀 단위로 보존</b>하는 데 사용됩니다.</p>
+            <div className="flex gap-2 items-start bg-white border border-gray-300 p-3 min-h-[90px]" onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleDetailCutUpload(e.dataTransfer.files); }}>
+              {productDetailImages.map((img, idx) => (
+                <div key={idx} className="relative w-20 h-20 border border-black shrink-0 bg-white">
+                  <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
+                  <button onClick={() => removeDetailAt(idx)} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                  <span className="absolute bottom-0 left-0 bg-black text-white text-[9px] font-bold px-1">{idx+1}</span>
+                </div>
+              ))}
+              {productDetailImages.length < 3 && (
+                <div onClick={() => document.getElementById('product-detail-upload').click()} className="w-20 h-20 border-2 border-dashed border-gray-300 bg-gray-50 cursor-pointer flex flex-col items-center justify-center shrink-0 hover:border-black transition-colors">
+                  <Plus className="w-4 h-4 text-gray-400 mb-0.5"/>
+                  <span className="text-[9px] font-bold text-gray-500 text-center leading-tight">디테일<br/>추가</span>
+                </div>
+              )}
+              <input id="product-detail-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => { handleDetailCutUpload(e.target.files); e.target.value = ''; }} />
+            </div>
+          </div>
+
+          {/* 2. Background Selection */}
           <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">1. 배경 선택</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">2. 배경 선택</h3>
             <div className="grid grid-cols-4 gap-2">
                 {bgOptions.map(bg => (
                     <button key={bg.id} onClick={() => setSelectedBg(bg.id)} className={`p-2 text-center border-2 transition-all ${selectedBg === bg.id ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
@@ -2107,7 +2167,7 @@ ${productRule}
 
           {/* 2. Lighting Selection */}
           <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">2. 조명 질감 선택</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">3. 조명 질감 선택</h3>
             <div className="grid grid-cols-4 gap-2">
                 {lightingOptions.map(light => (
                     <button key={light.id} onClick={() => setSelectedLighting(light.id)} className={`p-3 text-center border-2 transition-all ${selectedLighting === light.id ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
@@ -2119,7 +2179,7 @@ ${productRule}
 
           {/* 3. Mood Reference Image (Optional) */}
           <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">3. 무드 레퍼런스 (선택)</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">4. 무드 레퍼런스 (선택)</h3>
             <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스의 <b>제품 배치를 거의 그대로 카피</b>하고, 색감·톤도 함께 반영합니다. (제품 자체는 업로드된 원본만 사용)</p>
             <div onClick={() => document.getElementById('mood-ref-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'moodRef'); }} className="h-40 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
               {moodReferenceImage ? (
@@ -2136,7 +2196,7 @@ ${productRule}
 
           {/* 4. Custom Prompt / Additional Comments */}
           <div className="flex flex-col gap-2 pt-2">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">4. 추가 코멘트 (선택)</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 추가 코멘트 (선택)</h3>
             <div className="flex flex-wrap gap-2 mb-1">
               {productSnippets.map(s => (
                 <button key={s} onClick={() => appendPromptSnippet(s, setPrompt)} className="text-[11px] font-bold px-2 py-1 bg-gray-100 border border-gray-200 hover:bg-gray-200 text-gray-700 transition-colors">
