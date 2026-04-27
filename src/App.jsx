@@ -909,16 +909,34 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       if (faceImages.length > 0) {
           inputImagesText += `\n    Image ${currentImgIdx}+ (Face Detail Images): Source for TARGET FACE (Facial features).`;
           faceRuleText = `
-    [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
-    - SOURCE: Image ${currentImgIdx}+ (Face Detail Images)
-    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact proportions of eyes, nose, lips, jawline, and skin tone from these face images. Keep the exact hairstyle.
-    - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
+    [RULE 3: TARGET FACE LOCK — #1 ABSOLUTE NON-NEGOTIABLE PRIORITY]
+    - SOURCE OF TRUTH: Image ${currentImgIdx}+ (Face Detail Images). These face images are the SINGLE SOURCE OF TRUTH for the model's identity and override every other input for facial features.
+    - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame:
+      * Eye shape, eye spacing (canthal tilt), iris color and pattern, eyelid fold structure
+      * Nose bridge length/width, nostril shape, nose tip
+      * Lip shape, philtrum, mouth corner angle, teeth visibility/shape
+      * Jawline angle, chin shape, cheekbone height, ear shape
+      * Eyebrow shape, density, and natural growth direction
+      * Skin tone (exact hue/value), freckles, moles, scars, birthmarks — copy ALL of them in their exact positions
+      * Hairline, hair color, hair texture, parting direction, exact hairstyle volume
+    - INTERPOLATION PROHIBITED: Do NOT "average", "beautify", "smooth", "westernize/easternize", or stylize the face. The model's micro-asymmetries and imperfections MUST be preserved verbatim — they are part of the identity.
+    - NO NEW FACE: Generating a different person, a different ethnicity, or a different age is a hard failure.
+    - CONSISTENCY ACROSS VARIATIONS: All 4 generated images MUST show the SAME EXACT PERSON. Any drift between variations is a hard failure.`;
       } else {
           faceRuleText = `
-    [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
-    - SOURCE: Image 1 (Target Subject)
-    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact facial features and identity shown in Image 1.
-    - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
+    [RULE 3: TARGET FACE LOCK — #1 ABSOLUTE NON-NEGOTIABLE PRIORITY]
+    - SOURCE OF TRUTH: Image 1 (Target Subject). The face shown in Image 1 is the SINGLE SOURCE OF TRUTH for the model's identity.
+    - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame:
+      * Eye shape, eye spacing, iris pattern, eyelid fold
+      * Nose bridge, nostril shape, nose tip
+      * Lip shape, philtrum, mouth corners
+      * Jawline, chin, cheekbones, ears
+      * Eyebrow shape and density
+      * Skin tone (exact hue/value), freckles/moles/scars/birthmarks at their exact positions
+      * Hairline, hair color, hair texture, parting, exact hairstyle volume
+    - INTERPOLATION PROHIBITED: Do NOT "average", "beautify", "smooth", or stylize the face. Preserve micro-asymmetries verbatim.
+    - NO NEW FACE: Generating a different person, ethnicity, or age is a hard failure.
+    - CONSISTENCY ACROSS VARIATIONS: All 4 generated images MUST show the SAME EXACT PERSON.`;
       }
 
       let photoStyleDesc = "";
@@ -932,6 +950,21 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       const parts = [
         { text: `
     TASK: High-End Fashion Lookbook Generation with ABSOLUTE PILLAR LOCKING.
+
+    =========================================
+    #1 ABSOLUTE NON-NEGOTIABLE PRIORITIES (override everything else)
+    =========================================
+    PRIORITY A — FACIAL IDENTITY PRESERVATION:
+      The model's face must be 100% IDENTICAL to the source face image, with no "drift", "averaging", "beautifying", or stylization. Eye shape / nose / lips / jawline / skin tone / hairline / micro-features (freckles, moles, scars) must all be preserved verbatim. If the face wobbles or changes between the 4 variations, the entire output is a failure. See RULE 3 for the full identity lock spec.
+
+    PRIORITY B — HYPER-REALISTIC PHOTOREALISM (NOT AI-LOOKING):
+      The output MUST read as a high-resolution real photograph — NOT digital art, NOT AI render, NOT illustration, NOT CGI.
+      - Crisp focus on the subject; sharp eyes (catchlights visible); naturally rendered skin pores, peach fuzz, micro-pigmentation, and subtle subsurface scattering
+      - Natural film grain and organic color rendering at high resolution; NO plastic skin, NO over-smoothing, NO waxy highlights, NO uncanny symmetry
+      - Authentic lens characteristics: realistic depth of field, natural bokeh, accurate light fall-off, lens flare/aberration ONLY where physically appropriate
+      - Fabric must show real macro-level weave/knit/grain with believable thread tension, NOT melted or smoothed surfaces
+      - Avoid all "AI tells": symmetrical earrings that don't match, fingers fused or with wrong counts, floating jewelry, broken text, melted seams, glitched logos
+      - Resolution & quality: ultra-sharp 4K-equivalent detail end-to-end, with no soft/blurry passes on the face
 
     ${inputImagesText}
 
@@ -966,7 +999,11 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
       let var3Desc = "Variation 3: Waist-up medium shot (framing from the waist line up to the top of the head) in the EXACT SAME lighting and background environment. The camera is at chest-to-eye level. The frame MUST cut off precisely at the waistline — do NOT zoom in closer than the waist, and do NOT include the legs. This shows both the face and upper body styling naturally.";
 
-      let var4Desc = "Variation 4: Low-angle MEDIUM shot — camera positioned below chest level and tilted upward toward the subject, framed from the waist up to the top of the head (medium shot, NOT full body). The upward angle creates a powerful, editorial upward perspective. The lighting and background MUST be 100% identical to the reference.";
+      const var4UpperPool = [
+          "Low-angle MEDIUM shot — camera positioned below chest level and tilted upward toward the subject, framed from the waist up to the top of the head (medium shot, NOT full body). The upward angle creates a powerful, editorial upward perspective.",
+          "High-angle MEDIUM shot — camera positioned above the subject's head and tilted downward, framed from the waist up to the top of the head (medium shot, NOT full body). The downward angle creates an intimate, editorial downward perspective."
+      ];
+      let var4Desc = `Variation 4: ${var4UpperPool[Math.floor(Math.random() * var4UpperPool.length)]} The lighting and background MUST be 100% identical to the reference.`;
 
       if (targetFocus === 'lower') {
           var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
