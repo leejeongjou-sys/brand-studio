@@ -966,31 +966,16 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
       let var3Desc = "Variation 3: Waist-up medium shot (framing from the waist line up to the top of the head) in the EXACT SAME lighting and background environment. The camera is at chest-to-eye level. The frame MUST cut off precisely at the waistline — do NOT zoom in closer than the waist, and do NOT include the legs. This shows both the face and upper body styling naturally.";
 
-      const var4AnglePool = [
-          "low-angle shot (camera positioned below chest level, tilted upward toward the subject, creating a powerful upward perspective)",
-          "side profile shot (strict 90-degree side view of the subject, showing the full silhouette from the side)",
-          "three-quarter back view (camera positioned behind the subject at a 45-degree angle, showing about 25% of the face over the shoulder)",
-          "dutch angle shot (camera tilted 10-15 degrees off horizontal for a dynamic editorial composition, full body framing)",
-          "over-the-shoulder candid perspective (camera just behind and above one shoulder, looking at what the subject sees, with the subject partially in frame)",
-          "extreme wide shot (the subject is small within a large frame emphasizing the environment, full body with generous negative space)"
-      ];
-      let var4Desc = `Variation 4: ${var4AnglePool[Math.floor(Math.random() * var4AnglePool.length)]} in the EXACT SAME lighting and background environment. Capture a unique creative perspective distinctly different from the first three variations.`;
+      let var4Desc = "Variation 4: Low-angle MEDIUM shot — camera positioned below chest level and tilted upward toward the subject, framed from the waist up to the top of the head (medium shot, NOT full body). The upward angle creates a powerful, editorial upward perspective. The lighting and background MUST be 100% identical to the reference.";
 
       if (targetFocus === 'lower') {
           var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
-          const var4LowerPool = [
-              "low-angle lower body shot (camera at ankle level, tilted upward along the legs, emphasizing length and silhouette of the pants/skirt)",
-              "side profile lower body shot (strict 90-degree side view of the pants/skirt showing the full drape and silhouette)",
-              "three-quarter back view of the lower body (camera behind the subject at a 45-degree angle, showing the back fit and fall of the garment)",
-              "dutch angle lower body shot (camera tilted 10-15 degrees off horizontal, dynamic editorial framing of the legs and garment)",
-              "walking-motion candid lower body shot (captured mid-stride from a slight angle, showing natural movement of the fabric)"
-          ];
-          var4Desc = `Variation 4: ${var4LowerPool[Math.floor(Math.random() * var4LowerPool.length)]} in the EXACT SAME lighting and background environment. Capture a unique creative perspective distinctly different from the first three variations.`;
+          var4Desc = "Variation 4: Walking-motion candid lower body shot — the subject captured mid-stride from a slight 3/4 angle, showing natural movement and flow of the fabric on the legs. Camera at waist-to-thigh level, framing waist down to ankles. The lighting and background MUST be 100% identical to the reference.";
       }
 
       const lookbookVariations = [
           "Variation 1: Match the EXACT framing, composition, distance, and camera angle of the Reference Style Image (Image 2). Replicate the original perspective perfectly. The lighting and background MUST be 100% identical to the reference.",
-          "Variation 2: Keep the EXACT SAME lighting, shadows, and environment from Image 2, but shift the camera position to a slightly different angle (e.g., slightly from the side) to provide a new perspective of the identical scene.",
+          "Variation 2: Extreme wide shot — the subject appears small within a large frame, emphasizing the environment and composition with generous negative space around the full body of the model. The lighting and background MUST be 100% identical to the reference; only the camera distance changes (much further away than Variation 1).",
           var3Desc,
           var4Desc
       ];
