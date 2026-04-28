@@ -966,6 +966,12 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       - Avoid all "AI tells": symmetrical earrings that don't match, fingers fused or with wrong counts, floating jewelry, broken text, melted seams, glitched logos
       - Resolution & quality: ultra-sharp 4K-equivalent detail end-to-end, with no soft/blurry passes on the face
 
+    PRIORITY C — FACE-SIZE GUARANTEE (prevents identity drift in distant shots):
+      The face MUST always occupy enough pixels to render identity correctly. If the requested framing would shrink the face below ~6% of the frame height (i.e. tiny in the distance), tighten the camera so the face area is sufficient. NEVER place the model so far away that the face becomes a smudge of pixels — pull the camera in until the face has detail. This rule overrides camera-distance instructions in any single variation.
+
+    PRIORITY D — PERSPECTIVE GUARD (prevents face distortion at extreme angles):
+      Low-angle and high-angle shots must use MODERATE tilt (no more than ~15-20° from horizontal). NEVER apply extreme foreshortening that would distort the chin, forehead, or facial proportions. Lens choice should be standard portrait equivalent (50-85mm full-frame look) — avoid wide-angle distortion on the face.
+
     ${inputImagesText}
 
     =========================================
@@ -1000,10 +1006,10 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       let var3Desc = "Variation 3: Waist-up medium shot (framing from the waist line up to the top of the head) in the EXACT SAME lighting and background environment. The camera is at chest-to-eye level. The frame MUST cut off precisely at the waistline — do NOT zoom in closer than the waist, and do NOT include the legs. This shows both the face and upper body styling naturally.";
 
       const var4UpperPool = [
-          "Low-angle MEDIUM shot — camera positioned below chest level and tilted upward toward the subject, framed from the waist up to the top of the head (medium shot, NOT full body). The upward angle creates a powerful, editorial upward perspective.",
-          "High-angle MEDIUM shot — camera positioned above the subject's head and tilted downward, framed from the waist up to the top of the head (medium shot, NOT full body). The downward angle creates an intimate, editorial downward perspective."
+          "Slight low-angle MEDIUM shot — camera positioned at chest level (slightly below) with a MODEST upward tilt (around 10-15° from horizontal, NOT extreme). Framed from the waist up to the top of the head (medium shot, NOT full body). Use a standard portrait lens equivalent (50-85mm) so the face proportions are NEVER distorted by wide-angle foreshortening. The upward angle creates a subtle, editorial perspective.",
+          "Slight high-angle MEDIUM shot — camera positioned just above the subject's eye level with a MODEST downward tilt (around 10-15° from horizontal, NOT extreme). Framed from the waist up to the top of the head (medium shot, NOT full body). Use a standard portrait lens equivalent (50-85mm) so the face proportions are NEVER distorted. The downward angle creates a subtle, intimate perspective."
       ];
-      let var4Desc = `Variation 4: ${var4UpperPool[Math.floor(Math.random() * var4UpperPool.length)]} The lighting and background MUST be 100% identical to the reference.`;
+      let var4Desc = `Variation 4: ${var4UpperPool[Math.floor(Math.random() * var4UpperPool.length)]} The lighting and background MUST be 100% identical to the reference. The face MUST remain undistorted and recognizable.`;
 
       if (targetFocus === 'lower') {
           var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
@@ -1012,7 +1018,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
       const lookbookVariations = [
           "Variation 1: Match the EXACT framing, composition, distance, and camera angle of the Reference Style Image (Image 2). Replicate the original perspective perfectly. The lighting and background MUST be 100% identical to the reference.",
-          "Variation 2: Extreme wide shot — the subject appears small within a large frame, emphasizing the environment and composition with generous negative space around the full body of the model. The lighting and background MUST be 100% identical to the reference; only the camera distance changes (much further away than Variation 1).",
+          "Variation 2: Wide shot — the full body of the subject is comfortably visible with moderate negative space around the figure (NOT an extreme wide shot, NOT environmental scale). The subject must occupy enough of the frame that the face remains clearly detailed and recognizable — face area MUST be large enough to preserve identity (at minimum the face should occupy ~6-8% of the frame height, equivalent to a standard full-body fashion shot, not a tiny figure in a landscape). The lighting and background MUST be 100% identical to the reference; only the camera distance changes (slightly further than Variation 1, but keep the face crisp).",
           var3Desc,
           var4Desc
       ];
