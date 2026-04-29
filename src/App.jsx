@@ -1444,7 +1444,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
           bgToneDesc = "Place the model in the EXACT environment and background shown in the LAST provided image [Background Image]. STRICTLY MAINTAIN the original color, tone, and details of this background image. Do not alter its hue or brightness.";
           customBgInstruction = "\n* [Background Image]: The LAST image provided is the target background. You MUST composite the model onto this exact background without changing the background's original colors.";
       } else if (bgTone === 'bright') {
-          bgToneDesc = "Pure white studio seamless backdrop. High-key lighting, very bright and clean. STRICTLY MAINTAIN SOLID WHITE.";
+          bgToneDesc = "Pure CLEAN white studio seamless backdrop (#FFFFFF), like a perfectly lit cyclorama. ABSOLUTELY NO atmospheric particles — no dust, no floating motes, no haze, no fog, no smoke. ABSOLUTELY NO light artifacts — no bokeh, no light orbs, no lens flare, no light leaks, no gradient glow, no color cast, no vignette. The background MUST be a perfectly uniform, completely flat white field with ZERO texture, ZERO grain, and ZERO ambient noise. High-key lighting, very bright and clean. STRICTLY MAINTAIN SOLID UNIFORM PURE WHITE.";
       } else if (bgTone === 'mid') {
           bgToneDesc = "Light neutral grey studio seamless backdrop. Balanced mid-tone background. STRICTLY MAINTAIN SOLID LIGHT GREY.";
       } else if (bgTone === 'dark') {
