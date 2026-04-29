@@ -980,9 +980,12 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       - SHADOWS: same shadow direction, same shadow softness/hardness, same shadow density. Shadows shift only because the subject's pose changed — never because the lights moved.
       - TIME-OF-DAY & ATMOSPHERE: same sun position (if outdoor), same window light angle (if indoor), same atmospheric haze/dust/weather, same ambient color cast.
       - COLOR GRADING & TONE: same white balance, same exposure, same contrast, same saturation, same film grain character, same color science.
-      - LENS & CAMERA BODY: same lens family / focal length character, same depth of field aesthetic, same sensor look. (Only framing distance and angle vary per variation.)
+      - LENS & CAMERA BODY: same lens family / focal length character, same depth of field aesthetic, same sensor look.
       - WARDROBE: identical outfit on the model in all 4 frames — no changes to clothing, accessories, hair styling, or makeup.
       ANY drift in lighting, location, props, weather, time-of-day, color grade, wardrobe, or styling between the 4 outputs is a HARD FAILURE.
+
+      CAMERA POSITION VARIETY (REQUIRED DIFFERENCE):
+      The PHOTOGRAPHER'S physical camera position MUST be visibly different in each of the 4 images — never duplicate the same camera placement across variations. Each variation captures the same fixed scene from a clearly distinct viewpoint (different distance, different height, and/or different horizontal/vertical angle relative to the subject and the locked environment). Two variations sharing the same camera placement is a HARD FAILURE. The scene/lights are locked; the photographer moves.
 
     ${inputImagesText}
 
@@ -1040,7 +1043,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
               try {
                   await delay(i * 1500); // API Rate Limit 방지를 위한 지연
                   const localParts = [...parts];
-                  localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\n\n[HARD SCENE LOCK — IDENTICAL ACROSS ALL 4 OUTPUTS]\nThis is variation ${i + 1} of 4 from the SAME continuous photo session. The other 3 variations share the SAME location, SAME light setup, SAME props, SAME wardrobe, SAME time-of-day, SAME color grade, SAME atmosphere. The ONLY thing that changes between variations is camera angle / framing distance / pose. EVERYTHING ELSE is mathematically identical:\n- Background scene, walls, floor, ceiling, props, furniture: pixel-locked to the reference\n- Key light direction & intensity, fill light, rim light: pixel-locked\n- Shadow direction, softness, density: identical (only the subject's body shape moves shadows naturally)\n- Time of day, sun position, atmospheric haze: identical\n- White balance, exposure, contrast, saturation, film grain: identical\n- Outfit, accessories, hair, makeup: identical\nDo NOT introduce any new objects, do NOT shift the light, do NOT change the wall texture or color, do NOT alter the wardrobe. Maintain a slightly unique natural micro-expression while STRICTLY adhering to the Three Pillars and all 5 absolute priorities.` };
+                  localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\n\n[HARD SCENE LOCK — IDENTICAL ACROSS ALL 4 OUTPUTS]\nThis is variation ${i + 1} of 4 from the SAME continuous photo session. The other 3 variations share the SAME location, SAME light setup, SAME props, SAME wardrobe, SAME time-of-day, SAME color grade, SAME atmosphere. The ONLY thing that changes between variations is the photographer's camera position / framing distance / and the subject's pose. EVERYTHING ELSE is mathematically identical:\n- Background scene, walls, floor, ceiling, props, furniture: pixel-locked to the reference\n- Key light direction & intensity, fill light, rim light: pixel-locked\n- Shadow direction, softness, density: identical (only the subject's body shape moves shadows naturally)\n- Time of day, sun position, atmospheric haze: identical\n- White balance, exposure, contrast, saturation, film grain: identical\n- Outfit, accessories, hair, makeup: identical\nDo NOT introduce any new objects, do NOT shift the light, do NOT change the wall texture or color, do NOT alter the wardrobe.\n\n[CAMERA POSITION — MUST BE VISIBLY DIFFERENT FROM THE OTHER 3 VARIATIONS]\nThe photographer is physically standing at a different location for variation ${i + 1} than for the other variations. The viewpoint (distance / height / horizontal-and-vertical angle relative to the locked scene) MUST be clearly distinct from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Never duplicate another variation's camera placement.\n\nMaintain a slightly unique natural micro-expression while STRICTLY adhering to the Three Pillars and all 5 absolute priorities.` };
 
                   const { dataUrl } = await geminiGenerateImage({
                     primaryModelId: MODEL_OPTIONS.PRO,
@@ -1523,7 +1526,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       RULE 3: STUDIO BACKGROUND & LIGHTING (ABSOLUTE ENVIRONMENTAL LOCK)
                       - ${bgToneDesc}
                       - ${lightDesc}
-                      - 4-IMAGE HARD CONSISTENCY LOCK: This is one of 4 fitting images generated from the SAME continuous studio session. Treat all 4 as captured back-to-back from a single fixed camera & light setup — only the model's pose changes, NOTHING else.
+                      - 4-IMAGE HARD CONSISTENCY LOCK: This is one of 4 fitting images generated from the SAME continuous studio session. Treat all 4 as captured back-to-back from a single fixed light setup — only the photographer's camera position and the model's pose change, NOTHING else.
                         The following MUST be MATHEMATICALLY IDENTICAL across all 4 outputs:
                         * Background color, brightness, texture, and tone — pixel-locked
                         * Key light direction, intensity, color temperature (Kelvin), softness
@@ -1532,6 +1535,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                         * White balance, exposure, contrast, saturation, color grade
                         * Camera lens character, depth of field, sensor look
                         * The model's outfit, hair, makeup, accessories — IDENTICAL in all 4 images
+                      - CAMERA POSITION — MUST BE VISIBLY DIFFERENT IN EACH OF THE 4 IMAGES: the photographer's physical position (distance, height, horizontal/vertical angle relative to the model and the locked studio environment) must clearly differ across all 4 variations. Never duplicate the same camera placement on another variation. The lights/backdrop are locked; the photographer moves.
                       - PROHIBITED: do NOT introduce new props, do NOT shift the backdrop hue, do NOT change the lighting angle, do NOT add or remove atmospheric effects (haze/dust/glow) between variations. ANY drift in environment, lighting, color, or wardrobe between the 4 outputs is a HARD FAILURE.
                       ${detailDesc}
 
