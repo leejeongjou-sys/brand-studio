@@ -1617,37 +1617,8 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
               ))}
             </div>
 
-            {/* 3. Studio Background Tone */}
+            {/* 3. Styling Notes (먼저) */}
             <div className="mb-8">
-               <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Sun className="w-6 h-6" /> Background Tone</h3>
-               <p className="text-sm text-gray-500 font-bold mb-3">기본적인 메인광+반사광 스튜디오 세팅에서 배경의 밝기 톤을 선택하세요.</p>
-               <div className="grid grid-cols-4 gap-2">
-                   <button onClick={() => setBgTone('bright')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'bright' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                       밝게 (Pure White)
-                   </button>
-                   <button onClick={() => setBgTone('mid')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'mid' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                       중간 (Light Grey)
-                   </button>
-                   <button onClick={() => setBgTone('dark')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'dark' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                       어둡게 (Medium Grey)
-                   </button>
-                   <button onClick={() => setBgTone('custom')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'custom' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
-                       커스텀 배경지
-                   </button>
-               </div>
-               {bgTone === 'custom' && (
-                  <div className="mt-2 p-3 bg-white border border-black rounded-sm">
-                      <p className="text-[11px] font-bold text-black mb-2 uppercase">합성할 커스텀 배경 이미지를 업로드하세요 (원본 색상/톤 완전 유지)</p>
-                      <div onClick={() => document.getElementById('fitting-custom-bg-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'customBg'); }} className="h-24 border border-dashed border-gray-300 hover:border-black bg-gray-50 cursor-pointer flex items-center justify-center relative">
-                          {customBgImage ? <img src={customBgImage} className="w-full h-full object-cover opacity-80" alt="Custom BG" /> : <div className="text-center"><ImageIcon className="w-5 h-5 text-gray-400 mx-auto mb-1"/><span className="text-[10px] text-gray-500 font-bold">클릭하여 배경 추가</span></div>}
-                          <input id="fitting-custom-bg-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'customBg')} />
-                      </div>
-                  </div>
-               )}
-            </div>
-
-            {/* 4. Styling Notes */}
-            <div>
                <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Highlighter className="w-6 h-6" /> Styling Director Notes</h3>
 
                <div className="mb-4 bg-gray-50 border border-gray-200 p-4">
@@ -1699,6 +1670,35 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                      </button>
                </div>
              </div>
+
+            {/* 4. Studio Background Tone (이제 가장 아래로 이동) */}
+            <div>
+               <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Sun className="w-6 h-6" /> Background Tone</h3>
+               <p className="text-sm text-gray-500 font-bold mb-3">기본적인 메인광+반사광 스튜디오 세팅에서 배경의 밝기 톤을 선택하세요.</p>
+               <div className="grid grid-cols-4 gap-2">
+                   <button onClick={() => setBgTone('bright')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'bright' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
+                       밝게 (Pure White)
+                   </button>
+                   <button onClick={() => setBgTone('mid')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'mid' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
+                       중간 (Light Grey)
+                   </button>
+                   <button onClick={() => setBgTone('dark')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'dark' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
+                       어둡게 (Medium Grey)
+                   </button>
+                   <button onClick={() => setBgTone('custom')} className={`p-3 text-[12px] font-bold transition-all border-2 ${bgTone === 'custom' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
+                       커스텀 배경지
+                   </button>
+               </div>
+               {bgTone === 'custom' && (
+                  <div className="mt-2 p-3 bg-white border border-black rounded-sm">
+                      <p className="text-[11px] font-bold text-black mb-2 uppercase">합성할 커스텀 배경 이미지를 업로드하세요 (원본 색상/톤 완전 유지)</p>
+                      <div onClick={() => document.getElementById('fitting-custom-bg-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'customBg'); }} className="h-24 border border-dashed border-gray-300 hover:border-black bg-gray-50 cursor-pointer flex items-center justify-center relative">
+                          {customBgImage ? <img src={customBgImage} className="w-full h-full object-cover opacity-80" alt="Custom BG" /> : <div className="text-center"><ImageIcon className="w-5 h-5 text-gray-400 mx-auto mb-1"/><span className="text-[10px] text-gray-500 font-bold">클릭하여 배경 추가</span></div>}
+                          <input id="fitting-custom-bg-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'customBg')} />
+                      </div>
+                  </div>
+               )}
+            </div>
           </div>
 
         </div>
