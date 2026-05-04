@@ -1523,10 +1523,43 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       ${customBgInstruction}
                       ${detailInputText}
 
+                      =========================================
+                      #1 ABSOLUTE NON-NEGOTIABLE PRIORITY — IDENTITY PRESERVATION
+                      =========================================
+                      The single most important requirement, overriding everything else: the person in all 4 generated images MUST be the EXACT SAME PERSON shown in [Image 1] (face) and [Image 2] (body). NEVER generate a new person, a different person, a "similar-looking" person, an "averaged" person, or a "stylized" person. Any drift in identity is an immediate HARD FAILURE. If you cannot preserve the identity, refuse to generate rather than produce a substitute.
+
+                      Identity markers that MUST be carried over verbatim (no exceptions):
+                      - ETHNICITY / RACE: the model's exact ethnicity is FIXED to what is shown in Image [1] and Image [2]. NEVER change Asian to Caucasian, NEVER change Black to mixed, NEVER drift toward a "default" western/eastern face. Race/ethnicity is locked.
+                      - SKIN TONE & UNDERTONE: copy the exact skin hue, value, and undertone (warm/cool/neutral) from the source images. NEVER lighten, NEVER darken, NEVER beautify the skin. Match the precise skin color including any tan lines, redness, blemishes, or pigmentation visible in the source.
+                      - AGE: preserve the apparent age exactly. NEVER make the model younger or older.
+                      - GENDER PRESENTATION: preserve exactly as shown.
+                      - FACIAL FEATURES: eye shape and spacing, eyelid fold (monolid / double / hooded), iris color, eyebrow shape and density, nose bridge / nostril / nose tip, lip shape and fullness, philtrum, mouth corner angle, jawline angle, chin shape, cheekbone height, ear shape — all copied verbatim.
+                      - SKIN MARKERS: every freckle, mole, birthmark, scar, dimple, beauty mark MUST be preserved at its exact position. These are identity-defining.
+                      - HAIR: exact hair color, texture (straight/wavy/curly/coily), density, hairline, parting, hairstyle volume, length — all preserved.
+                      - BODY: height ratio, shoulder width, limb length, body type (slim/athletic/curvy/etc.), hand size, foot size, posture — all from Image [2].
+                      - VISIBLE SKIN ANYWHERE: arms, hands, neck, chest, legs (whatever is exposed by the outfit) MUST share the same skin tone as the face. NEVER let visible skin drift to a different color than the face.
+
+                      PROHIBITIONS (each is a hard failure):
+                      - Generating a "similar but different" person
+                      - "Averaging" facial features toward a generic look
+                      - "Beautifying" or removing skin markings/imperfections
+                      - Shifting ethnicity even slightly (e.g. making the eyes look more Western, or the nose look more European, etc.)
+                      - Lightening or smoothing the skin tone
+                      - Generating different people across the 4 variations (all 4 MUST be the SAME person)
+
+                      =========================================
+
                       RULE 1: FACIAL IDENTITY LOCK (100% Match Required - 최우선 순위: 이목구비 완벽 보존)
-                      - The generated model's face MUST accurately match the exact micro-proportions and identity of the Face in Image [1]. Do not alter the eye shape, nose structure, or lips.
-                      - Result MUST be the EXACT SAME PERSON.
-                      - **CRITICAL: EVEN IF THE BODY POSE OR DIRECTION IS CHANGED, THE FACIAL IDENTITY MUST REMAIN 100% COMPLETELY LOCKED AND IDENTICAL TO IMAGE [1] (if the face is visible in the frame).**
+                      - SOURCE OF TRUTH: Image [1] — face. This is the SINGLE source of truth for facial identity.
+                      - The generated model's face MUST be 100% identical to Image [1] in every micro-proportion, marker, and structural feature listed in the IDENTITY PRESERVATION block above.
+                      - Result MUST be the EXACT SAME PERSON across all 4 variations.
+                      - **CRITICAL: EVEN IF THE BODY POSE, CAMERA ANGLE, OR DIRECTION CHANGES, THE FACIAL IDENTITY (and especially ethnicity + skin tone) MUST REMAIN 100% LOCKED AND IDENTICAL TO IMAGE [1] whenever the face is visible at any size in the frame.**
+                      - NO INTERPOLATION: do not "average", "smooth", "beautify", or "stylize" the face. Preserve micro-asymmetries, blemishes, and natural imperfections verbatim — they are part of the identity.
+
+                      RULE 1-B: BODY & SKIN-TONE LOCK (extends RULE 1 to all visible skin)
+                      - SOURCE OF TRUTH: Image [2] — body.
+                      - The body's height, build, posture, and skin tone (on every visible patch — arms, hands, neck, decolletage, legs, ankles, feet) MUST match Image [2] exactly.
+                      - The face skin tone (Image 1) and the body skin tone (Image 2) MUST be reconciled to the SAME unified skin color across the entire model — never let the face be one tone and the exposed arms/legs another.
 
                       RULE 2: POSE, FRAMING & PROPORTION (ISOLATED CHANGE)
                       - ${poseDesc}
