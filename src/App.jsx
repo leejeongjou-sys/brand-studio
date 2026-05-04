@@ -1562,10 +1562,25 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       - The body's height, build, posture, and skin tone (on every visible patch — arms, hands, neck, decolletage, legs, ankles, feet) MUST match Image [2] exactly.
                       - The face skin tone (Image 1) and the body skin tone (Image 2) MUST be reconciled to the SAME unified skin color across the entire model — never let the face be one tone and the exposed arms/legs another.
 
+                      RULE 1-C: WARDROBE ITEM LOCK (입력된 의상 그대로 보존 — HIGHEST PRIORITY)
+                      - SOURCE OF TRUTH: each wardrobe input image (Images [3+]) is the SINGLE source of truth for that garment. The final image MUST render each garment exactly as shown in its source.
+                      - PRESERVE VERBATIM for every garment:
+                        * EXACT silhouette and cut (sleeve length, hem length, neckline shape, lapel/collar shape, pant rise/leg width/inseam, skirt length)
+                        * EXACT color and color distribution (no recoloring, no saturation shift, no hue drift)
+                        * EXACT print, pattern, graphic, embroidery, patch (copy raster-exact, do NOT redraw or simplify)
+                        * EXACT fabric texture and weave (knit/woven/leather/denim/etc. — match the source)
+                        * EXACT trims and hardware (buttons, zippers, snaps, rivets, eyelets, drawstrings, belts) — same count, same placement, same material
+                        * EXACT logos, labels, brand text — pixel-faithful
+                        * EXACT proportions of the garment relative to the body
+                      - ANTI-RESTYLE: do NOT "redesign", "reinterpret", "modernize", "simplify", "ornament", or "improve" any garment. The input wardrobe is final.
+                      - DRAPE-ONLY VARIATION: across the 4 variations, the garments themselves are 100% identical. The ONLY thing that changes per variation is HOW THE FABRIC NATURALLY DRAPES on the body due to the new pose (e.g. a hanging sleeve folds slightly differently when an arm moves) — but the garment itself, its color, length, cut, prints, trims are pixel-locked.
+                      - PROHIBITION: NEVER substitute a garment for a "similar" one, NEVER change a top's neckline, NEVER alter pant length/leg width, NEVER add or remove buttons/pockets/details, NEVER recolor, NEVER swap fabric type. Any drift from the source garment is a HARD FAILURE.
+
                       RULE 2: POSE, FRAMING & PROPORTION (ISOLATED CHANGE)
                       - ${poseDesc}
                       - ABSOLUTE PROPORTION LOCK: The model's physical dimensions (overall height, shoulder width, limb length, body ratio) MUST perfectly match [Image 2]. Never distort, stretch, or shrink the body.
-                      - CRITICAL ISOLATION: ONLY change the pose/framing. The background, lighting direction, shadow intensity, and studio environment MUST remain 100% locked and identical.
+                      - CRITICAL ISOLATION: When applying the new pose, ONLY the body posture / arm-and-leg placement / head angle / facial expression should change. THE WARDROBE ITEMS THEMSELVES (their color, cut, length, prints, trims, and silhouette) STAY 100% LOCKED to the source images per RULE 1-C — only how the existing fabric naturally drapes/folds on the new pose may shift.
+                      - The background, lighting direction, shadow intensity, and studio environment ALSO remain 100% locked and identical (per RULE 3).
 
                       RULE 3: STUDIO BACKGROUND & LIGHTING (ABSOLUTE ENVIRONMENTAL LOCK)
                       - ${bgToneDesc}
@@ -1578,7 +1593,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                         * Shadow direction, softness, and density (shadows shift only because the body moved, never because the lights moved)
                         * White balance, exposure, contrast, saturation, color grade
                         * Camera lens character, depth of field, sensor look
-                        * The model's outfit, hair, makeup, accessories — IDENTICAL in all 4 images
+                        * The model's outfit (every garment from Images [3+] per RULE 1-C), hair, makeup, accessories — IDENTICAL in all 4 images. Garment color, cut, length, prints, trims, and fabric do NOT change between variations; only natural fabric drape responds to the new pose.
                       - CAMERA POSITION — MUST BE VISIBLY DIFFERENT IN EACH OF THE 4 IMAGES: the photographer's physical position (distance, height, horizontal/vertical angle relative to the model and the locked studio environment) must clearly differ across all 4 variations. Never duplicate the same camera placement on another variation. The lights/backdrop are locked; the photographer moves.
                       - POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT IN EACH OF THE 4 IMAGES (NOT subtle micro-variations): each variation must show a distinctly different body posture, weight distribution, arm/hand placement, head tilt, gaze direction, AND facial expression. Two variations sharing essentially the same pose or expression is a hard failure.
                         OUTFIT-VISIBILITY CONSTRAINT: every pose MUST still showcase the outfit cleanly — keep the garment's silhouette, key details, and hemline readable. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.
