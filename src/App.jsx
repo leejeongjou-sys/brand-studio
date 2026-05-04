@@ -1382,7 +1382,8 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       "매우 루즈한 오버핏 연출",
       "드롭숄더",
       "극도의 오버핏",
-      "벌룬 배럴핏"
+      "벌룬 배럴핏",
+      "한 손은 바지 주머니에 자연스럽게 넣고, 다른 손은 옆에 편하게 내려둔 자세 (어깨 힘 빼고 자연스러운 무게중심)"
   ];
 
   const handleImageUpload = async (file, type, id = null) => {
