@@ -180,17 +180,28 @@ const appendPromptSnippet = (snippet, setter) => {
 };
 
 // --- GEMINI IMAGE CONFIG HELPERS ---
-const supportsImageSize = (modelId) => (modelId || '').includes('image');
+// The "lite" preview model rejects imageConfig.aspectRatio and imageConfig.imageSize.
+// Only the full "flash-image-preview" supports them.
+const supportsImageSize = (modelId) => {
+  const id = modelId || '';
+  if (id.includes('lite')) return false;
+  return id.includes('image');
+};
+const supportsAspectRatio = (modelId) => {
+  const id = modelId || '';
+  if (id.includes('lite')) return false;
+  return id.includes('image');
+};
 
 const buildImageGenerationConfig = (modelId, aspectRatio, qualityMode = 'std') => {
   const q = qualityMode === 'ultra' ? 'ultra' : 'std';
-  return {
-    responseModalities: ["IMAGE"],
-    imageConfig: {
-      aspectRatio,
-      ...(supportsImageSize(modelId) ? { imageSize: (q === 'ultra' ? "4K" : "2K") } : {})
-    }
-  };
+  const imageConfig = {};
+  if (supportsAspectRatio(modelId)) imageConfig.aspectRatio = aspectRatio;
+  if (supportsImageSize(modelId)) imageConfig.imageSize = q === 'ultra' ? '4K' : '2K';
+
+  const config = { responseModalities: ['IMAGE'] };
+  if (Object.keys(imageConfig).length > 0) config.imageConfig = imageConfig;
+  return config;
 };
 
 const extractGeminiImageDataUrl = (data) => {
