@@ -194,12 +194,17 @@ const supportsAspectRatio = (modelId) => {
 };
 
 const buildImageGenerationConfig = (modelId, aspectRatio, qualityMode = 'std') => {
+  const id = modelId || '';
   const q = qualityMode === 'ultra' ? 'ultra' : 'std';
   const imageConfig = {};
   if (supportsAspectRatio(modelId)) imageConfig.aspectRatio = aspectRatio;
   if (supportsImageSize(modelId)) imageConfig.imageSize = q === 'ultra' ? '4K' : '2K';
 
-  const config = { responseModalities: ['IMAGE'] };
+  // Lite preview returns image data only when both TEXT and IMAGE modalities are enabled.
+  // Pro flash-image-preview keeps the IMAGE-only behavior.
+  const responseModalities = id.includes('lite') ? ['TEXT', 'IMAGE'] : ['IMAGE'];
+
+  const config = { responseModalities };
   if (Object.keys(imageConfig).length > 0) config.imageConfig = imageConfig;
   return config;
 };
@@ -211,11 +216,17 @@ const extractGeminiImageDataUrl = (data) => {
 
   const finishReason = candidate?.finishReason;
   const textPart = candidate?.content?.parts?.find(p => p.text)?.text;
+  const promptFeedback = data?.promptFeedback;
 
   let errorMsg = "이미지가 생성되지 않았습니다.";
   if (finishReason === 'SAFETY') errorMsg = "안전 정책에 의해 생성이 차단되었습니다.";
   else if (finishReason === 'RECITATION') errorMsg = "저작권 문제로 생성이 차단되었습니다.";
-  else if (textPart) errorMsg = `모델 거절 메시지: ${textPart}`;
+  else if (textPart) errorMsg = `모델이 이미지 대신 텍스트를 반환했습니다: "${textPart.slice(0, 200)}"`;
+  else if (promptFeedback?.blockReason) errorMsg = `요청이 차단되었습니다: ${promptFeedback.blockReason}`;
+  else if (finishReason) errorMsg = `이미지가 생성되지 않았습니다. (finishReason: ${finishReason})`;
+
+  // Log full response for debugging in browser console
+  try { console.warn('[extractGeminiImageDataUrl] no image in response:', JSON.stringify(data)?.slice(0, 1000)); } catch (e) { /* ignore */ }
 
   throw new Error(errorMsg);
 };
