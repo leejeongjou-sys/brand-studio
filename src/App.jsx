@@ -63,7 +63,8 @@ const getAppId = () => {
 
 // Gemini Image Models
 const MODEL_OPTIONS = {
-  PRO: 'gemini-3.1-flash-image-preview'
+  PRO: 'gemini-3.1-flash-image-preview',
+  LITE: 'gemini-3.1-flash-lite-preview'
 };
 
 const ANALYSIS_MODEL_ID = 'gemini-3.1-flash-image-preview';
@@ -1056,7 +1057,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                   localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\n\n[HARD SCENE LOCK — IDENTICAL ACROSS ALL 4 OUTPUTS]\nThis is variation ${i + 1} of 4 from the SAME continuous photo session. The other 3 variations share the SAME location, SAME light setup, SAME props, SAME wardrobe, SAME time-of-day, SAME color grade, SAME atmosphere. The ONLY thing that changes between variations is the photographer's camera position / framing distance / and the subject's pose. EVERYTHING ELSE is mathematically identical:\n- Background scene, walls, floor, ceiling, props, furniture: pixel-locked to the reference\n- Key light direction & intensity, fill light, rim light: pixel-locked\n- Shadow direction, softness, density: identical (only the subject's body shape moves shadows naturally)\n- Time of day, sun position, atmospheric haze: identical\n- White balance, exposure, contrast, saturation, film grain: identical\n- Outfit, accessories, hair, makeup: identical\nDo NOT introduce any new objects, do NOT shift the light, do NOT change the wall texture or color, do NOT alter the wardrobe.\n\n[CAMERA POSITION — MUST BE VISIBLY DIFFERENT FROM THE OTHER 3 VARIATIONS]\nThe photographer is physically standing at a different location for variation ${i + 1} than for the other variations. The viewpoint (distance / height / horizontal-and-vertical angle relative to the locked scene) MUST be clearly distinct from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Never duplicate another variation's camera placement.\n\n[POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT FROM OTHER VARIATIONS]\nVariation ${i + 1}'s body posture, weight distribution, arm/hand placement, head angle, gaze direction, AND facial expression MUST all be distinctly different from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Pick a unique pose category for this variation (e.g. weight on one leg with hand on hip / leaning forward with arms crossed / mid-stride walk / hand through hair / contemplative profile gaze, etc.) and a unique expression (neutral / soft smile / pensive / intense / playful — never duplicate). The variations must read as 4 visibly different moments in the session, not 4 minor takes of the same pose.\nCRITICAL CONSTRAINT: every pose MUST still showcase the outfit clearly — keep the garment's silhouette, key details, and hemline visible. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.\n\nSTRICTLY adhere to the Three Pillars and all 5 absolute priorities.` };
 
                   const { dataUrl } = await geminiGenerateImage({
-                    primaryModelId: MODEL_OPTIONS.PRO,
+                    primaryModelId: settings.modelId || MODEL_OPTIONS.PRO,
                     fallbackModelId: null,
                     apiKey: settings.apiKey || DEFAULT_API_KEY,
                     contentsParts: localParts,
@@ -1506,7 +1507,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
       const poseVariations = [
           "Change the model's pose: face completely straight forward at the camera in a CONFIDENT UPRIGHT STANCE — weight evenly on both feet, arms RELAXED at the sides, shoulders open, chin level, NEUTRAL CALM EXPRESSION (Pose A — Standard Front Pose). The full outfit silhouette must be clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same.",
-          "Change the model's pose: still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A — shift weight strongly to one leg (contrapposto), place ONE HAND on the hip OR through the hair, change the head tilt slightly, and use a CLEARLY DIFFERENT facial expression (e.g. soft half-smile, downward gaze, or a relaxed playful look — NOT the same neutral expression as Pose A). This must look like a distinctly different photo moment, NOT a near-duplicate. The full outfit silhouette must remain clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same.",
+          "Change the model's pose: still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A — shift weight strongly to one leg (contrapposto), and place ONE HAND on the hip OR through the hair OR into a pants pocket (pick one naturally and effortlessly). The head and face ANGLE must be visibly different from Pose A (e.g. a slight head tilt, a small chin lift or drop, or a subtle head turn slightly off-axis). CRITICAL — KEEP THE SAME FACIAL EXPRESSION as Pose A: the expression itself does NOT change between Pose A and Pose B. Only the body posture, hand placement, and head/face ANGLE differ — the expression stays consistent. This must look like a distinctly different photo moment captured moments after Pose A from the same session, NOT a near-duplicate. The full outfit silhouette must remain clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same.",
           focus3,
           focus4
       ];
@@ -1617,7 +1618,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                   }
 
                   const { dataUrl } = await geminiGenerateImage({
-                    primaryModelId: MODEL_OPTIONS.PRO,
+                    primaryModelId: settings.modelId || MODEL_OPTIONS.PRO,
                     fallbackModelId: null,
                     apiKey: settings.apiKey || DEFAULT_API_KEY,
                     contentsParts: parts,
@@ -2174,7 +2175,7 @@ ${productRule}${detailRule}
       }
 
       const { dataUrl } = await geminiGenerateImage({
-        primaryModelId: MODEL_OPTIONS.PRO,
+        primaryModelId: settings.modelId || MODEL_OPTIONS.PRO,
         fallbackModelId: null,
         apiKey: settings.apiKey || DEFAULT_API_KEY,
         contentsParts: parts,
@@ -2462,7 +2463,11 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm }) => {
 
 const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
   const [key, setKey] = useState(settings.apiKey || '');
-  useEffect(() => { setKey(settings.apiKey || ''); }, [settings.apiKey, isOpen]);
+  const [modelId, setModelId] = useState(settings.modelId || MODEL_OPTIONS.PRO);
+  useEffect(() => {
+    setKey(settings.apiKey || '');
+    setModelId(settings.modelId || MODEL_OPTIONS.PRO);
+  }, [settings.apiKey, settings.modelId, isOpen]);
 
   if (!isOpen) return null;
   return (
@@ -2471,8 +2476,21 @@ const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-6 h-6" /></button>
         <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-2"><Settings className="w-6 h-6" /> 시스템 설정</h3>
         <div className="mb-6"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Key className="w-3 h-3" /> Google Gemini API Key</label><input type="password" value={key} onChange={e => setKey(e.target.value)} className="w-full p-3 border-2 border-black font-mono text-sm mb-2" placeholder="브라우저 및 클라우드에 자동 저장됩니다" /></div>
+        <div className="mb-6">
+          <label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Sparkles className="w-3 h-3" /> 이미지 모델</label>
+          <div className="flex flex-col gap-2">
+            <button onClick={() => setModelId(MODEL_OPTIONS.PRO)} className={`w-full py-3 px-4 border-2 text-left transition-colors ${modelId === MODEL_OPTIONS.PRO ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'}`}>
+              <div className="text-xs font-black uppercase">Pro <span className="text-[10px] font-medium normal-case opacity-70">(Flash Image — 고화질·정확도)</span></div>
+              <div className={`text-[10px] mt-0.5 ${modelId === MODEL_OPTIONS.PRO ? 'text-gray-300' : 'text-gray-500'} font-mono`}>{MODEL_OPTIONS.PRO}</div>
+            </button>
+            <button onClick={() => setModelId(MODEL_OPTIONS.LITE)} className={`w-full py-3 px-4 border-2 text-left transition-colors ${modelId === MODEL_OPTIONS.LITE ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'}`}>
+              <div className="text-xs font-black uppercase">Lite <span className="text-[10px] font-medium normal-case opacity-70">(Flash Image Lite — 빠름·저비용)</span></div>
+              <div className={`text-[10px] mt-0.5 ${modelId === MODEL_OPTIONS.LITE ? 'text-gray-300' : 'text-gray-500'} font-mono`}>{MODEL_OPTIONS.LITE}</div>
+            </button>
+          </div>
+        </div>
         <div className="mb-8"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3" /> 이미지 해상도</label><div className="flex gap-2"><button onClick={() => onUpdate({ ...settings, highRes: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.highRes ? 'bg-black text-white' : ''}`}>Standard</button><button onClick={() => onUpdate({ ...settings, highRes: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.highRes ? 'bg-black text-white' : ''}`}>Ultra (4K)</button></div></div>
-        <button onClick={() => { onUpdate({ ...settings, apiKey: key, modelId: MODEL_OPTIONS.PRO }); onClose(); }} className="w-full bg-black text-white py-4 font-bold uppercase hover:opacity-80">설정 저장</button>
+        <button onClick={() => { onUpdate({ ...settings, apiKey: key, modelId }); onClose(); }} className="w-full bg-black text-white py-4 font-bold uppercase hover:opacity-80">설정 저장</button>
       </div>
     </div>
   );
