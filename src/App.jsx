@@ -64,8 +64,11 @@ const getAppId = () => {
 // Gemini Image Models
 const MODEL_OPTIONS = {
   PRO: 'gemini-3.1-flash-image-preview',
-  LITE: 'gemini-3.1-flash-lite-preview'
+  LITE: 'gemini-3.1-flash-lite-preview',
+  OPENAI: 'gpt-image-1'
 };
+
+const isOpenAIModel = (id) => id === 'gpt-image-1';
 
 const ANALYSIS_MODEL_ID = 'gemini-3.1-flash-image-preview';
 
@@ -265,6 +268,82 @@ const geminiGenerateImage = async ({ primaryModelId, fallbackModelId, apiKey, co
   }
 };
 
+// --- OPENAI gpt-image-1 -----------------------------------------------------
+const dataUrlToBlob = async (dataUrl) => {
+  const res = await fetch(dataUrl);
+  return res.blob();
+};
+
+const openaiGenerateImageFromParts = async ({ apiKey, contentsParts, aspectRatio = '1:1', qualityMode = 'std' }) => {
+  if (!apiKey) throw new Error('OpenAI API Key가 설정되지 않았습니다. 시스템 설정에서 추가해주세요.');
+
+  const promptText = (contentsParts.find(p => p.text)?.text || '').trim();
+  const imageParts = contentsParts.filter(p => p.inlineData?.data);
+
+  // Map our aspect ratios to gpt-image-1 supported sizes
+  const sizeMap = {
+    '1:1': '1024x1024',
+    '3:4': '1024x1536',
+    '16:9': '1536x1024'
+  };
+  const size = sizeMap[aspectRatio] || 'auto';
+  const quality = qualityMode === 'ultra' ? 'high' : 'medium';
+
+  // Build multipart form-data. gpt-image-1 accepts up to 16 input images on /v1/images/edits.
+  const formData = new FormData();
+  formData.append('model', 'gpt-image-1');
+  formData.append('prompt', promptText.slice(0, 32000)); // hard cap for safety
+  formData.append('n', '1');
+  formData.append('size', size);
+  formData.append('quality', quality);
+
+  for (let i = 0; i < imageParts.length && i < 16; i++) {
+    const p = imageParts[i];
+    const mime = p.inlineData.mimeType || 'image/jpeg';
+    const ext = mime.split('/')[1] || 'jpg';
+    const dataUrl = `data:${mime};base64,${p.inlineData.data}`;
+    const blob = await dataUrlToBlob(dataUrl);
+    formData.append('image[]', blob, `input_${i}.${ext}`);
+  }
+
+  const res = await fetchWithRetry('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    body: formData
+  });
+
+  const raw = await res.text();
+  let data;
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: { message: raw || 'Invalid JSON' } }; }
+
+  if (!res.ok) throw new Error(`OpenAI API Error ${res.status}: ${data?.error?.message || raw}`);
+
+  const b64 = data?.data?.[0]?.b64_json;
+  if (!b64) {
+    try { console.warn('[openaiGenerateImage] no b64_json in response:', JSON.stringify(data)?.slice(0, 1000)); } catch (e) { /* ignore */ }
+    throw new Error('OpenAI 응답에 이미지 데이터가 없습니다.');
+  }
+  return `data:image/png;base64,${b64}`;
+};
+
+// --- UNIFIED ROUTER ---------------------------------------------------------
+// Picks the right provider based on modelId. Call sites build a `contentsParts`
+// array as before — the router extracts what each provider needs.
+const generateImage = async ({ modelId, geminiApiKey, openaiApiKey, contentsParts, aspectRatio, qualityMode }) => {
+  if (isOpenAIModel(modelId)) {
+    const dataUrl = await openaiGenerateImageFromParts({ apiKey: openaiApiKey, contentsParts, aspectRatio, qualityMode });
+    return { dataUrl, usedModelId: modelId, didFallback: false };
+  }
+  return geminiGenerateImage({
+    primaryModelId: modelId,
+    fallbackModelId: null,
+    apiKey: geminiApiKey,
+    contentsParts,
+    aspectRatio,
+    qualityMode
+  });
+};
+
 const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', apiKey, baseImage, detailImages = [], prompt }) => {
   const parts = [{ text: prompt }];
   parts.push({ inlineData: { mimeType: "image/jpeg", data: baseImage.split(',')[1] } });
@@ -336,7 +415,7 @@ const useAuth = () => {
 };
 
 const useSettings = (user) => {
-    const DEFAULT_SETTINGS = { apiKey: DEFAULT_API_KEY || '', highRes: false, modelId: MODEL_OPTIONS.PRO };
+    const DEFAULT_SETTINGS = { apiKey: DEFAULT_API_KEY || '', openaiApiKey: '', highRes: false, modelId: MODEL_OPTIONS.PRO };
     const [settings, setSettings] = useState(() => {
         try {
             const saved = localStorage.getItem('brand_studio_settings_v3');
@@ -1078,10 +1157,10 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                   const localParts = [...parts];
                   localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\n\n[HARD SCENE LOCK — IDENTICAL ACROSS ALL 4 OUTPUTS]\nThis is variation ${i + 1} of 4 from the SAME continuous photo session. The other 3 variations share the SAME location, SAME light setup, SAME props, SAME wardrobe, SAME time-of-day, SAME color grade, SAME atmosphere. The ONLY thing that changes between variations is the photographer's camera position / framing distance / and the subject's pose. EVERYTHING ELSE is mathematically identical:\n- Background scene, walls, floor, ceiling, props, furniture: pixel-locked to the reference\n- Key light direction & intensity, fill light, rim light: pixel-locked\n- Shadow direction, softness, density: identical (only the subject's body shape moves shadows naturally)\n- Time of day, sun position, atmospheric haze: identical\n- White balance, exposure, contrast, saturation, film grain: identical\n- Outfit, accessories, hair, makeup: identical\nDo NOT introduce any new objects, do NOT shift the light, do NOT change the wall texture or color, do NOT alter the wardrobe.\n\n[CAMERA POSITION — MUST BE VISIBLY DIFFERENT FROM THE OTHER 3 VARIATIONS]\nThe photographer is physically standing at a different location for variation ${i + 1} than for the other variations. The viewpoint (distance / height / horizontal-and-vertical angle relative to the locked scene) MUST be clearly distinct from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Never duplicate another variation's camera placement.\n\n[POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT FROM OTHER VARIATIONS]\nVariation ${i + 1}'s body posture, weight distribution, arm/hand placement, head angle, gaze direction, AND facial expression MUST all be distinctly different from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Pick a unique pose category for this variation (e.g. weight on one leg with hand on hip / leaning forward with arms crossed / mid-stride walk / hand through hair / contemplative profile gaze, etc.) and a unique expression (neutral / soft smile / pensive / intense / playful — never duplicate). The variations must read as 4 visibly different moments in the session, not 4 minor takes of the same pose.\nCRITICAL CONSTRAINT: every pose MUST still showcase the outfit clearly — keep the garment's silhouette, key details, and hemline visible. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.\n\nSTRICTLY adhere to the Three Pillars and all 5 absolute priorities.` };
 
-                  const { dataUrl } = await geminiGenerateImage({
-                    primaryModelId: settings.modelId || MODEL_OPTIONS.PRO,
-                    fallbackModelId: null,
-                    apiKey: settings.apiKey || DEFAULT_API_KEY,
+                  const { dataUrl } = await generateImage({
+                    modelId: settings.modelId || MODEL_OPTIONS.PRO,
+                    geminiApiKey: settings.apiKey || DEFAULT_API_KEY,
+                    openaiApiKey: settings.openaiApiKey || '',
                     contentsParts: localParts,
                     aspectRatio,
                     qualityMode: settings.highRes ? 'ultra' : 'std'
@@ -1639,10 +1718,10 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
                   }
 
-                  const { dataUrl } = await geminiGenerateImage({
-                    primaryModelId: settings.modelId || MODEL_OPTIONS.PRO,
-                    fallbackModelId: null,
-                    apiKey: settings.apiKey || DEFAULT_API_KEY,
+                  const { dataUrl } = await generateImage({
+                    modelId: settings.modelId || MODEL_OPTIONS.PRO,
+                    geminiApiKey: settings.apiKey || DEFAULT_API_KEY,
+                    openaiApiKey: settings.openaiApiKey || '',
                     contentsParts: parts,
                     aspectRatio: '3:4',
                     qualityMode: settings.highRes ? 'ultra' : 'std'
@@ -2196,10 +2275,10 @@ ${productRule}${detailRule}
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compMoodRef.split(',')[1] } });
       }
 
-      const { dataUrl } = await geminiGenerateImage({
-        primaryModelId: settings.modelId || MODEL_OPTIONS.PRO,
-        fallbackModelId: null,
-        apiKey: settings.apiKey || DEFAULT_API_KEY,
+      const { dataUrl } = await generateImage({
+        modelId: settings.modelId || MODEL_OPTIONS.PRO,
+        geminiApiKey: settings.apiKey || DEFAULT_API_KEY,
+        openaiApiKey: settings.openaiApiKey || '',
         contentsParts: parts,
         aspectRatio: '1:1',
         qualityMode: settings.highRes ? 'ultra' : 'std'
@@ -2485,34 +2564,55 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm }) => {
 
 const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
   const [key, setKey] = useState(settings.apiKey || '');
+  const [openaiKey, setOpenaiKey] = useState(settings.openaiApiKey || '');
   const [modelId, setModelId] = useState(settings.modelId || MODEL_OPTIONS.PRO);
   useEffect(() => {
     setKey(settings.apiKey || '');
+    setOpenaiKey(settings.openaiApiKey || '');
     setModelId(settings.modelId || MODEL_OPTIONS.PRO);
-  }, [settings.apiKey, settings.modelId, isOpen]);
+  }, [settings.apiKey, settings.openaiApiKey, settings.modelId, isOpen]);
 
   if (!isOpen) return null;
+  const usesOpenAI = isOpenAIModel(modelId);
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-white border-2 border-white shadow-2xl max-w-md w-full p-8 animate-fade-in relative">
+      <div className="bg-white border-2 border-white shadow-2xl max-w-md w-full p-8 animate-fade-in relative max-h-[90vh] overflow-y-auto custom-scrollbar">
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-6 h-6" /></button>
         <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-2"><Settings className="w-6 h-6" /> 시스템 설정</h3>
-        <div className="mb-6"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Key className="w-3 h-3" /> Google Gemini API Key</label><input type="password" value={key} onChange={e => setKey(e.target.value)} className="w-full p-3 border-2 border-black font-mono text-sm mb-2" placeholder="브라우저 및 클라우드에 자동 저장됩니다" /></div>
+
+        <div className="mb-6">
+          <label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Key className="w-3 h-3" /> Google Gemini API Key</label>
+          <input type="password" value={key} onChange={e => setKey(e.target.value)} className="w-full p-3 border-2 border-black font-mono text-sm mb-2" placeholder="브라우저 및 클라우드에 자동 저장됩니다" />
+        </div>
+
+        <div className="mb-6">
+          <label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Key className="w-3 h-3" /> OpenAI API Key <span className="text-[10px] font-medium normal-case text-gray-500">(gpt-image-1 사용 시 필수)</span></label>
+          <input type="password" value={openaiKey} onChange={e => setOpenaiKey(e.target.value)} className="w-full p-3 border-2 border-black font-mono text-sm mb-2" placeholder="sk-..." />
+        </div>
+
         <div className="mb-6">
           <label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Sparkles className="w-3 h-3" /> 이미지 모델</label>
           <div className="flex flex-col gap-2">
             <button onClick={() => setModelId(MODEL_OPTIONS.PRO)} className={`w-full py-3 px-4 border-2 text-left transition-colors ${modelId === MODEL_OPTIONS.PRO ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'}`}>
-              <div className="text-xs font-black uppercase">Pro <span className="text-[10px] font-medium normal-case opacity-70">(Flash Image — 고화질·정확도)</span></div>
+              <div className="text-xs font-black uppercase">Gemini Pro <span className="text-[10px] font-medium normal-case opacity-70">(Flash Image — 고화질·정확도)</span></div>
               <div className={`text-[10px] mt-0.5 ${modelId === MODEL_OPTIONS.PRO ? 'text-gray-300' : 'text-gray-500'} font-mono`}>{MODEL_OPTIONS.PRO}</div>
             </button>
             <button onClick={() => setModelId(MODEL_OPTIONS.LITE)} className={`w-full py-3 px-4 border-2 text-left transition-colors ${modelId === MODEL_OPTIONS.LITE ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'}`}>
-              <div className="text-xs font-black uppercase">Lite <span className="text-[10px] font-medium normal-case opacity-70">(Flash Image Lite — 빠름·저비용)</span></div>
+              <div className="text-xs font-black uppercase">Gemini Lite <span className="text-[10px] font-medium normal-case opacity-70">(Flash Lite — 실험적, 이미지 미지원 가능)</span></div>
               <div className={`text-[10px] mt-0.5 ${modelId === MODEL_OPTIONS.LITE ? 'text-gray-300' : 'text-gray-500'} font-mono`}>{MODEL_OPTIONS.LITE}</div>
             </button>
+            <button onClick={() => setModelId(MODEL_OPTIONS.OPENAI)} className={`w-full py-3 px-4 border-2 text-left transition-colors ${modelId === MODEL_OPTIONS.OPENAI ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'}`}>
+              <div className="text-xs font-black uppercase">OpenAI gpt-image-1 <span className="text-[10px] font-medium normal-case opacity-70">(라벨/텍스트 보존 강함)</span></div>
+              <div className={`text-[10px] mt-0.5 ${modelId === MODEL_OPTIONS.OPENAI ? 'text-gray-300' : 'text-gray-500'} font-mono`}>{MODEL_OPTIONS.OPENAI}</div>
+            </button>
           </div>
+          {usesOpenAI && !openaiKey && (
+            <p className="mt-2 text-[11px] font-bold text-red-600">⚠ OpenAI 키를 위에서 먼저 입력해주세요.</p>
+          )}
         </div>
+
         <div className="mb-8"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3" /> 이미지 해상도</label><div className="flex gap-2"><button onClick={() => onUpdate({ ...settings, highRes: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.highRes ? 'bg-black text-white' : ''}`}>Standard</button><button onClick={() => onUpdate({ ...settings, highRes: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.highRes ? 'bg-black text-white' : ''}`}>Ultra (4K)</button></div></div>
-        <button onClick={() => { onUpdate({ ...settings, apiKey: key, modelId }); onClose(); }} className="w-full bg-black text-white py-4 font-bold uppercase hover:opacity-80">설정 저장</button>
+        <button onClick={() => { onUpdate({ ...settings, apiKey: key, openaiApiKey: openaiKey, modelId }); onClose(); }} className="w-full bg-black text-white py-4 font-bold uppercase hover:opacity-80">설정 저장</button>
       </div>
     </div>
   );
