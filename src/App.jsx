@@ -1499,15 +1499,15 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
       let focus3 = "", focus4 = "";
       if (mainType === 'BOTTOM') {
-          focus3 = `Change the camera framing to a LOWER BODY MEDIUM SHOT (from waist line down to the ankles) facing the camera straight-on. The camera is at waist-to-thigh level. Focus explicitly on the pants/skirt silhouette, drape, and fit of the Main Item (${mainLabel}). The head/face does NOT need to be in frame. The lighting, shadows, and studio background MUST remain exactly the same.`;
-          focus4 = `Change the camera framing to a LOWER BODY SHOT (from waist down to ankles) from a slight 3/4 side angle (about 25-30 degrees off-axis) to show the side silhouette, fabric drape, and fit of the Main Item (${mainLabel}). The camera is at waist level. Head/face does not need to be in frame. The lighting, shadows, and studio background MUST remain exactly the same.`;
+          focus3 = `MANDATORY FRAMING — LOWER BODY MEDIUM SHOT: The frame MUST start exactly at the waistline and end at the ankles. Do NOT show the head, do NOT show the chest, do NOT show the full body. The waistline is the TOP edge of the frame; the ankles/floor are the BOTTOM edge. Camera is straight-on at waist-to-thigh level. Focus explicitly on the pants/skirt silhouette, drape, and fit of the Main Item (${mainLabel}). The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE — do NOT widen to full body, do NOT crop tighter.`;
+          focus4 = `MANDATORY FRAMING — LOWER BODY MEDIUM SHOT (3/4 side): Same lower-body framing as Variation 3 (waist to ankles, NOT full body, NOT closer than the waist), but from a slight 3/4 side angle (about 25-30 degrees off-axis). Show the side silhouette, fabric drape, and fit of the Main Item (${mainLabel}). Camera at waist level. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
       } else if (mainType === 'SHOES') {
-          focus3 = `Change the camera framing to a FEET & LOWER LEG CLOSE-UP (from mid-shin down to the floor) at a straight frontal angle. The shoes (Main Item: ${mainLabel}) are the clear subject. The lighting, shadows, and studio background MUST remain exactly the same.`;
-          focus4 = `Change the camera framing to a FEET CLOSE-UP from a slight 3/4 angle, with one foot slightly forward (or mid-stride) to show the shoe silhouette dynamically. The shoes (Main Item: ${mainLabel}) must remain the subject. The lighting, shadows, and studio background MUST remain exactly the same.`;
+          focus3 = `MANDATORY FRAMING — FEET & LOWER LEG CLOSE-UP: The frame MUST start at mid-shin and end at the floor. Do NOT show the upper body, do NOT show the full body. The shoes (Main Item: ${mainLabel}) are the clear subject. Camera at floor level, straight frontal angle. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
+          focus4 = `MANDATORY FRAMING — FEET CLOSE-UP (3/4 angle): Same feet-and-lower-leg framing as Variation 3 (mid-shin to floor, NOT wider), from a slight 3/4 angle with one foot slightly forward (or mid-stride). The shoes (Main Item: ${mainLabel}) must remain the subject. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
       } else {
           // OUTER, TOP, ACC, etc. → upper body focus
-          focus3 = `Change the camera framing to an UPPER BODY MEDIUM SHOT (from the waist line up to the top of the head) facing the camera straight-on. The face IS in frame (keep the identity lock). Focus explicitly on the neckline, shoulders, chest, sleeves, and overall silhouette of the Main Item (${mainLabel}). The lighting, shadows, and studio background MUST remain exactly the same.`;
-          focus4 = `Change the camera framing to an UPPER BODY MEDIUM SHOT (waist up to head) from a slight 3/4 side angle (about 25-30 degrees off-axis). The face is partially visible in profile (keep the identity lock). Focus on the side silhouette, sleeve drape, and how the Main Item (${mainLabel}) falls on the body. The lighting, shadows, and studio background MUST remain exactly the same.`;
+          focus3 = `MANDATORY FRAMING — UPPER BODY MEDIUM SHOT (waist-up): The frame MUST start exactly at the waistline and end at the top of the head. Do NOT show the hips, do NOT show the legs, do NOT show the full body. The waistline is the BOTTOM edge of the frame; the top of the head is the TOP edge. The face IS in frame, sharp and identity-locked. Camera is straight-on at chest-to-eye level. Focus explicitly on the neckline, shoulders, chest, sleeves, and upper body silhouette of the Main Item (${mainLabel}). The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE — do NOT widen to full body, do NOT crop to a head-and-shoulders close-up.`;
+          focus4 = `MANDATORY FRAMING — UPPER BODY MEDIUM SHOT (waist-up, 3/4 side): Same waist-up framing as Variation 3 (waistline at bottom, top of head at top, NOT full body, NOT head-and-shoulders), but from a slight 3/4 side angle (about 25-30 degrees off-axis). The face is partially visible in profile, sharp and identity-locked. Focus on the side silhouette, sleeve drape, and how the Main Item (${mainLabel}) falls on the upper body. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
       }
 
       const poseVariations = [
@@ -1525,6 +1525,18 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                   const baseParts = [
                     { text: `
                       TASK: High-Fidelity Virtual Try-On & Identity Compositing with **ABSOLUTE SUBJECT PRESERVATION**.
+
+                      =========================================
+                      #0 OUTPUT FORMAT — SINGLE FRAME ONLY (HARD FAILURE IF VIOLATED)
+                      =========================================
+                      Return EXACTLY ONE single full-frame photograph that fills the entire output canvas.
+                      ABSOLUTELY FORBIDDEN (each is an immediate hard failure):
+                      - 2x2 grid, 2x1 / 1x2 split, 4-panel collage, contact sheet, or any multi-panel layout
+                      - Diptych, triptych, side-by-side comparison, before/after split
+                      - Multiple thumbnails, film strip, photo strip, or mosaic
+                      - Picture-in-picture, inset frame, overlay sub-image
+                      - "Behind the scenes" composite or mood board layout
+                      This API call produces ONE composed photograph showing ONE pose. The 4 variations are 4 SEPARATE API calls — never combine them into one image.
 
                       ROLE: You are an expert Image Compositor. You COMBINE the face from Image [1] with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+].
                       ${customBgInstruction}
@@ -1601,7 +1613,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                         * Camera lens character, depth of field, sensor look
                         * The model's outfit (every garment from Images [3+] per RULE 1-C), hair, makeup, accessories — IDENTICAL in all 4 images. Garment color, cut, length, prints, trims, and fabric do NOT change between variations; only natural fabric drape responds to the new pose.
                       - CAMERA POSITION — MUST BE VISIBLY DIFFERENT IN EACH OF THE 4 IMAGES: the photographer's physical position (distance, height, horizontal/vertical angle relative to the model and the locked studio environment) must clearly differ across all 4 variations. Never duplicate the same camera placement on another variation. The lights/backdrop are locked; the photographer moves.
-                      - POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT IN EACH OF THE 4 IMAGES (NOT subtle micro-variations): each variation must show a distinctly different body posture, weight distribution, arm/hand placement, head tilt, gaze direction, AND facial expression. Two variations sharing essentially the same pose or expression is a hard failure.
+                      - POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT IN EACH OF THE 4 IMAGES (NOT subtle micro-variations): each variation must show a distinctly different body posture, weight distribution, arm/hand placement, head tilt, gaze direction, AND facial expression. Two variations sharing essentially the same pose or expression is a hard failure. HOWEVER — pose variety NEVER overrides the MANDATORY FRAMING specified by the per-variation instruction. If this variation specifies "waist-up upper body medium shot", the framing MUST stay waist-up regardless of which pose is chosen. Framing > pose variety priority.
                         OUTFIT-VISIBILITY CONSTRAINT: every pose MUST still showcase the outfit cleanly — keep the garment's silhouette, key details, and hemline readable. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.
                       - PROHIBITED: do NOT introduce new props, do NOT shift the backdrop hue, do NOT change the lighting angle, do NOT add or remove atmospheric effects (haze/dust/glow) between variations. ANY drift in environment, lighting, color, or wardrobe between the 4 outputs is a HARD FAILURE.
                       ${detailDesc}
