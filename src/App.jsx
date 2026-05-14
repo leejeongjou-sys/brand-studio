@@ -1443,6 +1443,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
   const [bgTone, setBgTone] = useState('bright');
   const [customBgImage, setCustomBgImage] = useState(null);
   const [generatedFits, setGeneratedFits] = useState([]);
+  const [lastGenMode, setLastGenMode] = useState(null); // 'fullbody' | 'focus' | null
   const [currentFitIndex, setCurrentFitIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showZoomModal, setShowZoomModal] = useState(false);
@@ -1539,7 +1540,8 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
     document.body.removeChild(link);
   };
 
-  const handleGenerateFit = async () => {
+  const handleGenerateFit = async (mode = 'fullbody') => {
+    // mode: 'fullbody' (variations 1·2 only) | 'focus' (variations 3·4 only)
     if (faceImages.length === 0 || !bodyImage) return showNotification("모델의 얼굴(1~3장)과 전신 사진은 필수입니다.", "error");
     const activeItems = items.filter(i => i.image);
     if (activeItems.length === 0) return showNotification("적어도 하나 이상의 아이템을 등록해주세요.", "error");
@@ -1548,6 +1550,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
     setIsGenerating(true);
     setGeneratedFits([]);
     setCurrentFitIndex(0);
+    setLastGenMode(mode);
 
     try {
       // Face images are kept at high quality (1280 @ 0.95) for maximum identity preservation.
@@ -1609,12 +1612,13 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
           focus4 = `MANDATORY FRAMING — UPPER BODY MEDIUM SHOT (waist-up, 3/4 side): Same waist-up framing as Variation 3 (waistline at bottom, top of head at top, NOT full body, NOT head-and-shoulders), but from a slight 3/4 side angle (about 25-30 degrees off-axis). The face is partially visible in profile, sharp and identity-locked. Focus on the side silhouette, sleeve drape, and how the Main Item (${mainLabel}) falls on the upper body. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
       }
 
-      const poseVariations = [
-          "MANDATORY FRAMING — FULL BODY SHOT (Variation 1 of 4): The frame MUST start at the top of the head and end below the feet (the entire body from head to toe is visible, with a small margin above the head and below the feet). This is NOT a medium shot, NOT a waist-up crop. Pose A — Standard Front Pose: face completely straight forward at the camera in a CONFIDENT UPRIGHT STANCE — weight evenly on both feet, arms RELAXED at the sides, shoulders open, chin level, NEUTRAL CALM EXPRESSION. The full outfit silhouette must be clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE.",
-          "MANDATORY FRAMING — FULL BODY SHOT (Variation 2 of 4): Same FULL BODY framing as Variation 1 (head to toe visible, NOT a medium shot). Pose B — still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A: shift weight strongly to one leg (contrapposto), and place ONE HAND on the hip OR through the hair OR into a pants pocket (pick one naturally and effortlessly). The head and face ANGLE must be visibly different from Pose A (e.g. a slight head tilt, a small chin lift or drop, or a subtle head turn slightly off-axis). CRITICAL — KEEP THE SAME FACIAL EXPRESSION as Pose A: the expression itself does NOT change between Pose A and Pose B. Only the body posture, hand placement, and head/face ANGLE differ. This must look like a distinctly different photo moment from the same session, NOT a near-duplicate. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE.",
-          focus3,
-          focus4
+      const fullBodyVariations = [
+          "MANDATORY FRAMING — FULL BODY SHOT (Variation 1 of 2): The frame MUST start at the top of the head and end below the feet (the entire body from head to toe is visible, with a small margin above the head and below the feet). This is NOT a medium shot, NOT a waist-up crop. Pose A — Standard Front Pose: face completely straight forward at the camera in a CONFIDENT UPRIGHT STANCE — weight evenly on both feet, arms RELAXED at the sides, shoulders open, chin level, NEUTRAL CALM EXPRESSION. The full outfit silhouette must be clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE.",
+          "MANDATORY FRAMING — FULL BODY SHOT (Variation 2 of 2): Same FULL BODY framing as Variation 1 (head to toe visible, NOT a medium shot). Pose B — still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A: shift weight strongly to one leg (contrapposto), and place ONE HAND on the hip OR through the hair OR into a pants pocket (pick one naturally and effortlessly). The head and face ANGLE must be visibly different from Pose A (e.g. a slight head tilt, a small chin lift or drop, or a subtle head turn slightly off-axis). CRITICAL — KEEP THE SAME FACIAL EXPRESSION as Pose A: the expression itself does NOT change between Pose A and Pose B. Only the body posture, hand placement, and head/face ANGLE differ. This must look like a distinctly different photo moment from the same session, NOT a near-duplicate. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE."
       ];
+      const focusVariations = [focus3, focus4];
+
+      const poseVariations = mode === 'focus' ? focusVariations : fullBodyVariations;
 
       const promises = poseVariations.map((poseDesc, i) => {
           return new Promise(async (resolve, reject) => {
@@ -1635,19 +1639,16 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       - Multiple thumbnails, film strip, photo strip, or mosaic
                       - Picture-in-picture, inset frame, overlay sub-image
                       - "Behind the scenes" composite or mood board layout
-                      This API call produces ONE composed photograph showing ONE pose. The 4 variations are 4 SEPARATE API calls — never combine them into one image.
+                      This API call produces ONE composed photograph showing ONE pose. There are 2 variations in this batch, generated as 2 SEPARATE API calls — never combine them into one image.
 
                       =========================================
                       #0.5 PRIORITY HIERARCHY (apply in this exact order; higher P overrides lower when they conflict)
                       =========================================
                       P1 (highest): MODEL FACE IDENTITY — race, skin tone, eye/nose/lip shape, jawline, all facial markers must match the uploaded face references verbatim. See PRIORITY 1 and RULE 1 for full details.
                       P2: MAIN ITEM DETAILS — the main wardrobe item's exact fabric texture, color, prints, labels, trims, and silhouette must match its source image pixel-for-pixel. See RULE 1-C and RULE 4 for full details.
-                      P3: VARIATION FRAMING — this is one of 4 variations with a SPECIFIC framing assignment:
-                          - Variations 1 and 2 = MANDATORY FULL-BODY shots (head to toe visible).
-                          - Variations 3 and 4 = MANDATORY MEDIUM SHOTS focused on the main item region (upper-body waist-up for OUTER/TOP/ACC main items, lower-body waist-down for BOTTOM main items, feet close-up for SHOES main items).
-                          Read the variation-specific MANDATORY FRAMING instruction at the bottom — it is non-negotiable.
-                      P4: 4-IMAGE CONSISTENCY — same location / lighting / shadows / color grade / wardrobe across all 4 outputs; only camera position and pose vary.
-                      P5: POSE & EXPRESSION VARIETY — substantially different poses across the 4 variations, but never at the cost of P1, P2, or P3.
+                      P3: VARIATION FRAMING — this batch contains 2 variations, both ${mode === 'focus' ? 'MEDIUM SHOTS focused on the main item region (upper-body waist-up for OUTER/TOP/ACC main items, lower-body waist-down for BOTTOM main items, feet close-up for SHOES main items)' : 'MANDATORY FULL-BODY shots (head to toe visible, NOT medium shots)'}. Read the variation-specific MANDATORY FRAMING instruction at the bottom — it is non-negotiable.
+                      P4: 2-IMAGE CONSISTENCY — same location / lighting / shadows / color grade / wardrobe across BOTH outputs in this batch; only camera position and pose vary.
+                      P5: POSE & EXPRESSION VARIETY — substantially different poses across the 2 variations, but never at the cost of P1, P2, or P3.
 
                       ROLE: You are an expert Image Compositor. You COMBINE the face from the FACE IMAGES (provided as Image [1] AND repeated as the LAST inputs for emphasis) with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+]. There ${faceImages.length > 1 ? `are ${faceImages.length} face reference images covering different angles` : 'is one face reference image'} — they ALL represent the SAME person and ALL must be used to lock identity.
                       ${customBgInstruction}
@@ -1661,7 +1662,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       =========================================
                       #1 ABSOLUTE NON-NEGOTIABLE PRIORITY — IDENTITY PRESERVATION
                       =========================================
-                      The single most important requirement, overriding everything else: the person in all 4 generated images MUST be the EXACT SAME PERSON shown in [Image 1] (face) and [Image 2] (body). NEVER generate a new person, a different person, a "similar-looking" person, an "averaged" person, or a "stylized" person. Any drift in identity is an immediate HARD FAILURE. If you cannot preserve the identity, refuse to generate rather than produce a substitute.
+                      The single most important requirement, overriding everything else: the person in both generated images MUST be the EXACT SAME PERSON shown in [Image 1] (face) and [Image 2] (body). NEVER generate a new person, a different person, a "similar-looking" person, an "averaged" person, or a "stylized" person. Any drift in identity is an immediate HARD FAILURE. If you cannot preserve the identity, refuse to generate rather than produce a substitute.
 
                       Identity markers that MUST be carried over verbatim (no exceptions):
                       - ETHNICITY / RACE: the model's exact ethnicity is FIXED to what is shown in Image [1] and Image [2]. NEVER change Asian to Caucasian, NEVER change Black to mixed, NEVER drift toward a "default" western/eastern face. Race/ethnicity is locked.
@@ -1680,14 +1681,14 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       - "Beautifying" or removing skin markings/imperfections
                       - Shifting ethnicity even slightly (e.g. making the eyes look more Western, or the nose look more European, etc.)
                       - Lightening or smoothing the skin tone
-                      - Generating different people across the 4 variations (all 4 MUST be the SAME person)
+                      - Generating different people across the variations in this batch (both MUST be the SAME person)
 
                       =========================================
 
                       RULE 1: FACIAL IDENTITY LOCK (100% Match Required - 최우선 순위: 이목구비 완벽 보존)
                       - SOURCE OF TRUTH: Image [1] — face. This is the SINGLE source of truth for facial identity.
                       - The generated model's face MUST be 100% identical to Image [1] in every micro-proportion, marker, and structural feature listed in the IDENTITY PRESERVATION block above.
-                      - Result MUST be the EXACT SAME PERSON across all 4 variations.
+                      - Result MUST be the EXACT SAME PERSON across both variations in this batch.
                       - **CRITICAL: EVEN IF THE BODY POSE, CAMERA ANGLE, OR DIRECTION CHANGES, THE FACIAL IDENTITY (and especially ethnicity + skin tone) MUST REMAIN 100% LOCKED AND IDENTICAL TO IMAGE [1] whenever the face is visible at any size in the frame.**
                       - NO INTERPOLATION: do not "average", "smooth", "beautify", or "stylize" the face. Preserve micro-asymmetries, blemishes, and natural imperfections verbatim — they are part of the identity.
 
@@ -1707,7 +1708,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                         * EXACT logos, labels, brand text — pixel-faithful
                         * EXACT proportions of the garment relative to the body
                       - ANTI-RESTYLE: do NOT "redesign", "reinterpret", "modernize", "simplify", "ornament", or "improve" any garment. The input wardrobe is final.
-                      - DRAPE-ONLY VARIATION: across the 4 variations, the garments themselves are 100% identical. The ONLY thing that changes per variation is HOW THE FABRIC NATURALLY DRAPES on the body due to the new pose (e.g. a hanging sleeve folds slightly differently when an arm moves) — but the garment itself, its color, length, cut, prints, trims are pixel-locked.
+                      - DRAPE-ONLY VARIATION: across the 2 variations in this batch, the garments themselves are 100% identical. The ONLY thing that changes per variation is HOW THE FABRIC NATURALLY DRAPES on the body due to the new pose (e.g. a hanging sleeve folds slightly differently when an arm moves) — but the garment itself, its color, length, cut, prints, trims are pixel-locked.
                       - PROHIBITION: NEVER substitute a garment for a "similar" one, NEVER change a top's neckline, NEVER alter pant length/leg width, NEVER add or remove buttons/pockets/details, NEVER recolor, NEVER swap fabric type. Any drift from the source garment is a HARD FAILURE.
 
                       RULE 2: POSE, FRAMING & PROPORTION (ISOLATED CHANGE)
@@ -1719,19 +1720,19 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       RULE 3: STUDIO BACKGROUND & LIGHTING (ABSOLUTE ENVIRONMENTAL LOCK)
                       - ${bgToneDesc}
                       - ${lightDesc}
-                      - 4-IMAGE HARD CONSISTENCY LOCK: This is one of 4 fitting images generated from the SAME continuous studio session. Treat all 4 as captured back-to-back from a single fixed light setup — only the photographer's camera position and the model's pose change, NOTHING else.
-                        The following MUST be MATHEMATICALLY IDENTICAL across all 4 outputs:
+                      - 2-IMAGE HARD CONSISTENCY LOCK: This is one of 2 fitting images generated in the current batch from the SAME continuous studio session. Treat both as captured back-to-back from a single fixed light setup — only the photographer's camera position and the model's pose change, NOTHING else.
+                        The following MUST be MATHEMATICALLY IDENTICAL across BOTH outputs:
                         * Background color, brightness, texture, and tone — pixel-locked
                         * Key light direction, intensity, color temperature (Kelvin), softness
                         * Fill light, rim light, bounce light positions and intensities — fixed
                         * Shadow direction, softness, and density (shadows shift only because the body moved, never because the lights moved)
                         * White balance, exposure, contrast, saturation, color grade
                         * Camera lens character, depth of field, sensor look
-                        * The model's outfit (every garment from Images [3+] per RULE 1-C), hair, makeup, accessories — IDENTICAL in all 4 images. Garment color, cut, length, prints, trims, and fabric do NOT change between variations; only natural fabric drape responds to the new pose.
-                      - CAMERA POSITION — MUST BE VISIBLY DIFFERENT IN EACH OF THE 4 IMAGES: the photographer's physical position (distance, height, horizontal/vertical angle relative to the model and the locked studio environment) must clearly differ across all 4 variations. Never duplicate the same camera placement on another variation. The lights/backdrop are locked; the photographer moves.
+                        * The model's outfit (every garment from Images [3+] per RULE 1-C), hair, makeup, accessories — IDENTICAL in both images. Garment color, cut, length, prints, trims, and fabric do NOT change between variations; only natural fabric drape responds to the new pose.
+                      - CAMERA POSITION — MUST BE VISIBLY DIFFERENT BETWEEN THE 2 IMAGES IN THIS BATCH: the photographer's physical position (distance, height, horizontal/vertical angle relative to the model and the locked studio environment) must clearly differ across the 2 variations. Never duplicate the same camera placement. The lights/backdrop are locked; the photographer moves.
                       - POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT IN EACH OF THE 4 IMAGES (NOT subtle micro-variations): each variation must show a distinctly different body posture, weight distribution, arm/hand placement, head tilt, gaze direction, AND facial expression. Two variations sharing essentially the same pose or expression is a hard failure. HOWEVER — pose variety NEVER overrides the MANDATORY FRAMING specified by the per-variation instruction. If this variation specifies "waist-up upper body medium shot", the framing MUST stay waist-up regardless of which pose is chosen. Framing > pose variety priority.
                         OUTFIT-VISIBILITY CONSTRAINT: every pose MUST still showcase the outfit cleanly — keep the garment's silhouette, key details, and hemline readable. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.
-                      - PROHIBITED: do NOT introduce new props, do NOT shift the backdrop hue, do NOT change the lighting angle, do NOT add or remove atmospheric effects (haze/dust/glow) between variations. ANY drift in environment, lighting, color, or wardrobe between the 4 outputs is a HARD FAILURE.
+                      - PROHIBITED: do NOT introduce new props, do NOT shift the backdrop hue, do NOT change the lighting angle, do NOT add or remove atmospheric effects (haze/dust/glow) between variations. ANY drift in environment, lighting, color, or wardrobe between the 2 outputs in this batch is a HARD FAILURE.
                       ${detailDesc}
 
                       ${profileLockBlock}
@@ -1783,10 +1784,11 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       }
 
       setGeneratedFits(successfulImages);
-      if (successfulImages.length < 4) {
-          showNotification(`4장 중 ${successfulImages.length}장만 생성되었습니다.`);
+      const modeLabel = mode === 'focus' ? '포커스 컷' : '전신 컷';
+      if (successfulImages.length < 2) {
+          showNotification(`${modeLabel} 2장 중 ${successfulImages.length}장만 생성되었습니다.`);
       } else {
-          showNotification("4장의 피팅컷이 성공적으로 생성되었습니다.");
+          showNotification(`${modeLabel} 2장이 성공적으로 생성되었습니다.`);
       }
 
     } catch (e) {
@@ -1921,17 +1923,37 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       className="flex-1 h-32 p-4 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed overflow-y-auto resize-none"
                       placeholder="예: 모자는 푹 눌러쓰고, 신발은 스포티하게 연출해주세요..."
                     />
-                    <button onClick={handleGenerateFit} disabled={isGenerating || faceImages.length === 0 || !bodyImage} className={`w-36 text-white font-bold text-base uppercase transition-all flex flex-col items-center justify-center gap-1 ${generatedFits.length > 0 ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                        {isGenerating ? (
-                          <><Loader2 className="w-6 h-6 animate-spin" /> <span>피팅 4장<br/>생성 중...</span></>
-                        ) : (
-                          generatedFits.length > 0 ? (
-                            <><RefreshCcw className="w-6 h-6 text-white" /> <span className="text-center">코디 4장<br/>재생성</span></>
-                          ) : (
-                            <><Sparkles className="w-6 h-6 text-white" /> <span className="text-center">피팅 4장<br/>자동생성</span></>
-                          )
-                        )}
-                     </button>
+                    <div className="flex flex-col gap-2 w-40 shrink-0">
+                      {(() => {
+                        const t = items.find(i => i.id === mainItemId)?.type;
+                        const focusLabel = t === 'BOTTOM' ? '하반신' : t === 'SHOES' ? '발' : '상반신';
+                        const isDisabled = isGenerating || faceImages.length === 0 || !bodyImage;
+                        const wasFullBody = lastGenMode === 'fullbody' && generatedFits.length > 0;
+                        const wasFocus = lastGenMode === 'focus' && generatedFits.length > 0;
+                        return (
+                          <>
+                            <button onClick={() => handleGenerateFit('fullbody')} disabled={isDisabled} className={`flex-1 text-white font-bold text-xs uppercase transition-all flex flex-col items-center justify-center gap-1 py-2 ${wasFullBody ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                              {isGenerating && lastGenMode === 'fullbody' ? (
+                                <><Loader2 className="w-5 h-5 animate-spin" /> <span>전신 2장<br/>생성 중...</span></>
+                              ) : wasFullBody ? (
+                                <><RefreshCcw className="w-5 h-5 text-white" /> <span className="text-center">전신 2장<br/>재생성</span></>
+                              ) : (
+                                <><Sparkles className="w-5 h-5 text-white" /> <span className="text-center">전신 2장<br/>생성</span></>
+                              )}
+                            </button>
+                            <button onClick={() => handleGenerateFit('focus')} disabled={isDisabled} className={`flex-1 text-white font-bold text-xs uppercase transition-all flex flex-col items-center justify-center gap-1 py-2 ${wasFocus ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                              {isGenerating && lastGenMode === 'focus' ? (
+                                <><Loader2 className="w-5 h-5 animate-spin" /> <span>{focusLabel} 2장<br/>생성 중...</span></>
+                              ) : wasFocus ? (
+                                <><RefreshCcw className="w-5 h-5 text-white" /> <span className="text-center">{focusLabel} 2장<br/>재생성</span></>
+                              ) : (
+                                <><Sparkles className="w-5 h-5 text-white" /> <span className="text-center">{focusLabel} 2장<br/>생성</span></>
+                              )}
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
                </div>
              </div>
 
@@ -1983,11 +2005,12 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                  <span className="text-[10px] font-bold bg-gray-200 px-2 py-1 ml-auto">
                     {(() => {
                       const t = items.find(i => i.id === mainItemId)?.type;
-                      const isLower = t === 'BOTTOM' || t === 'SHOES';
-                      if (currentFitIndex === 0) return '전신 1';
-                      if (currentFitIndex === 1) return '전신 2';
-                      if (currentFitIndex === 2) return isLower ? '하반신 정면' : '상반신 정면';
-                      return isLower ? '하반신 사이드' : '상반신 사이드';
+                      const focusLabel = t === 'BOTTOM' ? '하반신' : t === 'SHOES' ? '발' : '상반신';
+                      if (lastGenMode === 'focus') {
+                        return currentFitIndex === 0 ? `${focusLabel} 정면` : `${focusLabel} 사이드`;
+                      }
+                      // default: fullbody
+                      return currentFitIndex === 0 ? '전신 1' : '전신 2';
                     })()}
                  </span>
               </div>
