@@ -2080,6 +2080,7 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     { id: 'linen', label: '네츄럴 린넨', desc: '부드럽고 따뜻한 린넨 천 질감' },
     { id: 'white_paint', label: '하얀 페인트', desc: '깨끗한 흰색 페인트 바닥' },
     { id: 'dark_grey_paint', label: '짙은 회색 페인트', desc: '무게감 있는 회색 페인트' },
+    { id: 'ghost', label: '고스트컷', desc: '공중에 떠있는 모습 (Ghost Mannequin)' },
     { id: 'custom', label: '첨부 이미지', desc: '원하는 배경을 직접 업로드' }
   ];
 
@@ -2258,7 +2259,10 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
       else if (selectedBg === 'linen') bgDesc = "natural linen fabric background, soft textile texture, organic feel";
       else if (selectedBg === 'white_paint') bgDesc = "matte white painted floor surface, subtle paint texture, clean bright studio floor";
       else if (selectedBg === 'dark_grey_paint') bgDesc = "dark charcoal grey matte painted floor, deep grey painted surface, moody sophisticated studio background";
+      else if (selectedBg === 'ghost') bgDesc = "pure clean white #FFFFFF floating background, like a high-end e-commerce ghost-mannequin product shot. Completely uniform white field — no texture, no grain, no atmospheric particles, no vignette, no color cast. The ONLY shadow visible is the soft drop shadow directly below the floating product to indicate it is suspended in space.";
       else bgDesc = "Place the product naturally into the environment shown in the [Input Image 2]. The mood and setting should perfectly match the reference background.";
+
+      const isGhost = selectedBg === 'ghost';
 
       let lightDesc = "";
       if (selectedLighting === 'softbox') lightDesc = "softbox diffused lighting, even illumination, soft shadows, studio lighting";
@@ -2325,9 +2329,11 @@ ${analysisBlock}
             - ANTI-HALLUCINATION: Do NOT smooth, re-illustrate, simplify, re-weave, or "beautify" any product detail. The output must feel like a high-resolution real photograph of the exact physical items.
 
             RULE 1-B: GROUP COMPOSITION
-            - ${moodReferenceImage
-                ? `The arrangement (positions, display mode, orientations, spacing) IS DICTATED by the MOOD REFERENCE LAYOUT BLUEPRINT. Follow that blueprint. Do not override it with a default flat-lay.`
-                : `Arrange all ${productCount} products on the SAME single background surface in a visually balanced flat-lay. Natural aesthetic spacing; slight overlap allowed only if editorially meaningful.`}
+            - ${isGhost
+                ? `All ${productCount} products FLOAT in mid-air, each retaining its 3D worn form as if filled by an invisible body. Arrange them in a balanced floating composition (e.g. side by side, or layered with depth) — they do NOT lie flat. NO support wires, NO mannequins, NO hands. Each product casts its own soft drop shadow directly below it.`
+                : (moodReferenceImage
+                    ? `The arrangement (positions, display mode, orientations, spacing) IS DICTATED by the MOOD REFERENCE LAYOUT BLUEPRINT. Follow that blueprint. Do not override it with a default flat-lay.`
+                    : `Arrange all ${productCount} products on the SAME single background surface in a visually balanced flat-lay. Natural aesthetic spacing; slight overlap allowed only if editorially meaningful.`)}
             - Unified consistent lighting across all products — every product's shadow falls in a consistent natural direction.
             - FRAMING: zoom out so all ${productCount} products fit comfortably with ~10% margin on all sides. No item cropped at the edge.`
         : `
@@ -2357,13 +2363,17 @@ ${analysisBlock}
           { text: `
               TASK: ${taskLine}
 
-              CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
-              CRITICAL RULE 2: SCENE SETUP - ${moodReferenceImage
-                  ? `The display mode (laid flat / hanging / draped / folded stacks / mixed) is DETERMINED BY the MOOD REFERENCE LAYOUT BLUEPRINT below. DO NOT default to flat-lay if the reference shows hanging or other arrangements. Follow the blueprint's display mode exactly.`
-                  : (isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.')}
-              CRITICAL RULE 3: CAMERA - ${moodReferenceImage
-                  ? `Match the camera angle/framing implied by the MOOD REFERENCE LAYOUT BLUEPRINT (e.g. if hanging garments are shown frontally, use a front-facing camera; if flat-lay, use top-down).`
-                  : `Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface).`}
+              CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS, NO MANNEQUINS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
+              CRITICAL RULE 2: SCENE SETUP - ${isGhost
+                  ? `GHOST MANNEQUIN / INVISIBLE MANNEQUIN MODE — the product${isGroup ? 's are' : ' is'} SUSPENDED in mid-air against the clean white background, with full 3D worn form preserved as if filled by an invisible body (collar standing up, shoulders properly shaped, sleeves naturally falling, body filled out, hem hanging with gravity). It is NOT lying flat. NO body, NO mannequin, NO hands, NO visible support wires, NO strings, NO clips, NO floor contact. The product${isGroup ? 's appear' : ' appears'} to be floating in space. A soft natural drop shadow appears DIRECTLY BELOW the product to indicate the floating state.`
+                  : (moodReferenceImage
+                      ? `The display mode (laid flat / hanging / draped / folded stacks / mixed) is DETERMINED BY the MOOD REFERENCE LAYOUT BLUEPRINT below. DO NOT default to flat-lay if the reference shows hanging or other arrangements. Follow the blueprint's display mode exactly.`
+                      : (isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.'))}
+              CRITICAL RULE 3: CAMERA - ${isGhost
+                  ? `Eye-level front-facing camera, product${isGroup ? 's' : ''} centered in the frame. This is NOT a top-down flat-lay. Standard portrait lens equivalent (50-85mm) so the product's worn shape reads naturally without lens distortion.`
+                  : (moodReferenceImage
+                      ? `Match the camera angle/framing implied by the MOOD REFERENCE LAYOUT BLUEPRINT (e.g. if hanging garments are shown frontally, use a front-facing camera; if flat-lay, use top-down).`
+                      : `Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface).`)}
               ${moodRefInputText}
 ${productRule}${detailRule}
 
