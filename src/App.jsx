@@ -284,52 +284,6 @@ const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', api
   throw new Error(txt ? `모델 메시지: ${txt}` : "이미지 보정 결과가 없습니다.");
 };
 
-// --- FACE RESTORE PASS ---
-// Two-pass refinement: take a generated image and replace ONLY the face area using
-// the original face reference(s). Everything else stays identical.
-const faceRestorePass = async ({ apiKey, modelId = 'gemini-3.1-flash-image-preview', generatedImage, faceImages = [] }) => {
-  if (!generatedImage || faceImages.length === 0) throw new Error('faceRestorePass: missing inputs');
-
-  const restorationPrompt = `
-TASK: FACE-ONLY RESTORATION — surgical, single-image output.
-
-YOU WILL RECEIVE:
-- [Image 1] = the BASE photograph. Output MUST replicate this image pixel-for-pixel EXCEPT for the model's face.
-- [Image 2${faceImages.length > 1 ? ` through Image ${1 + faceImages.length}` : ''}] = face reference${faceImages.length > 1 ? 's (multiple angles of the same person)' : ''}. The ENTIRE facial identity comes from these references.
-
-MANDATORY:
-- Output a SINGLE full-frame image at the same aspect ratio as Image 1.
-- Keep the body, outfit, pose, hands, hair shape, background, lighting, shadows, color grade, and composition of [Image 1] absolutely unchanged.
-- Replace ONLY the facial features inside the head region: eye shape, eye spacing, eyelid fold, iris color, eyebrow shape, nose bridge, nostrils, nose tip, lip shape, philtrum, jawline, chin, cheekbones, ear shape, skin tone/undertone of the face, skin markers (freckles/moles/scars) — all from the reference face image(s).
-- Match the head angle, head position, and hair styling exactly as they appear in [Image 1].
-- Re-light the face naturally to match Image 1's existing lighting (same direction, intensity, color temperature).
-- Preserve facial micro-asymmetries and imperfections from the reference — DO NOT beautify, smooth, or average.
-
-PROHIBITED (each is a hard failure):
-- Generating a 2x2 grid / collage / split / diptych / contact sheet
-- Changing the outfit, body, pose, background, or composition
-- Producing a different person; drifting ethnicity, age, or skin tone
-- "Beautifying", "averaging", or "stylizing" the face
-
-Return ONE single photograph matching Image 1 in every aspect except with the reference face.`;
-
-  const parts = [
-    { text: restorationPrompt },
-    { inlineData: { mimeType: 'image/jpeg', data: generatedImage.split(',')[1] } },
-    ...faceImages.map(f => ({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } }))
-  ];
-
-  const { dataUrl } = await geminiGenerateImage({
-    primaryModelId: modelId,
-    fallbackModelId: null,
-    apiKey,
-    contentsParts: parts,
-    aspectRatio: '3:4',
-    qualityMode: 'std'
-  });
-  return dataUrl;
-};
-
 // --- CUSTOM HOOKS ---
 const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -365,7 +319,7 @@ const useAuth = () => {
 };
 
 const useSettings = (user) => {
-    const DEFAULT_SETTINGS = { apiKey: DEFAULT_API_KEY || '', highRes: false, modelId: MODEL_OPTIONS.PRO, faceRestorePass: true };
+    const DEFAULT_SETTINGS = { apiKey: DEFAULT_API_KEY || '', highRes: false, modelId: MODEL_OPTIONS.PRO };
     const [settings, setSettings] = useState(() => {
         try {
             const saved = localStorage.getItem('brand_studio_settings_v3');
@@ -1727,24 +1681,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                     aspectRatio: '3:4',
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
-
-                  // OPTIONAL FACE-RESTORE PASS: take the generated image and send it back
-                  // to the model with the primary face image to enforce face identity. Costs
-                  // an extra API call per variation but dramatically improves face fidelity.
-                  let finalDataUrl = dataUrl;
-                  if (settings.faceRestorePass) {
-                      try {
-                          finalDataUrl = await faceRestorePass({
-                              apiKey: settings.apiKey || DEFAULT_API_KEY,
-                              modelId: MODEL_OPTIONS.PRO,
-                              generatedImage: dataUrl,
-                              faceImages: compFaces
-                          });
-                      } catch (e) {
-                          console.warn('Face restore pass failed, using original generation:', e);
-                      }
-                  }
-                  resolve(finalDataUrl);
+                  resolve(dataUrl);
               } catch(e) { reject(e); }
           });
       });
@@ -2615,15 +2552,7 @@ const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-6 h-6" /></button>
         <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-2"><Settings className="w-6 h-6" /> 시스템 설정</h3>
         <div className="mb-6"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Key className="w-3 h-3" /> Google Gemini API Key</label><input type="password" value={key} onChange={e => setKey(e.target.value)} className="w-full p-3 border-2 border-black font-mono text-sm mb-2" placeholder="브라우저 및 클라우드에 자동 저장됩니다" /></div>
-        <div className="mb-6"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3" /> 이미지 해상도</label><div className="flex gap-2"><button onClick={() => onUpdate({ ...settings, highRes: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.highRes ? 'bg-black text-white' : ''}`}>Standard</button><button onClick={() => onUpdate({ ...settings, highRes: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.highRes ? 'bg-black text-white' : ''}`}>Ultra (4K)</button></div></div>
-        <div className="mb-8">
-          <label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><UserCheck className="w-3 h-3" /> 얼굴 복원 패스 (피팅룸)</label>
-          <p className="text-[11px] text-gray-500 mb-2 font-medium">생성 후 얼굴 영역만 한번 더 다듬어 이목구비를 최대한 보존합니다. 생성 시간이 2배가 됩니다.</p>
-          <div className="flex gap-2">
-            <button onClick={() => onUpdate({ ...settings, faceRestorePass: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.faceRestorePass ? 'bg-black text-white' : ''}`}>ON (정확도 우선)</button>
-            <button onClick={() => onUpdate({ ...settings, faceRestorePass: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.faceRestorePass ? 'bg-black text-white' : ''}`}>OFF (속도 우선)</button>
-          </div>
-        </div>
+        <div className="mb-8"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3" /> 이미지 해상도</label><div className="flex gap-2"><button onClick={() => onUpdate({ ...settings, highRes: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.highRes ? 'bg-black text-white' : ''}`}>Standard</button><button onClick={() => onUpdate({ ...settings, highRes: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.highRes ? 'bg-black text-white' : ''}`}>Ultra (4K)</button></div></div>
         <button onClick={() => { onUpdate({ ...settings, apiKey: key, modelId: MODEL_OPTIONS.PRO }); onClose(); }} className="w-full bg-black text-white py-4 font-bold uppercase hover:opacity-80">설정 저장</button>
       </div>
     </div>
