@@ -1610,8 +1610,8 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       }
 
       const poseVariations = [
-          "Change the model's pose: face completely straight forward at the camera in a CONFIDENT UPRIGHT STANCE — weight evenly on both feet, arms RELAXED at the sides, shoulders open, chin level, NEUTRAL CALM EXPRESSION (Pose A — Standard Front Pose). The full outfit silhouette must be clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same.",
-          "Change the model's pose: still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A — shift weight strongly to one leg (contrapposto), and place ONE HAND on the hip OR through the hair OR into a pants pocket (pick one naturally and effortlessly). The head and face ANGLE must be visibly different from Pose A (e.g. a slight head tilt, a small chin lift or drop, or a subtle head turn slightly off-axis). CRITICAL — KEEP THE SAME FACIAL EXPRESSION as Pose A: the expression itself does NOT change between Pose A and Pose B. Only the body posture, hand placement, and head/face ANGLE differ — the expression stays consistent. This must look like a distinctly different photo moment captured moments after Pose A from the same session, NOT a near-duplicate. The full outfit silhouette must remain clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same.",
+          "MANDATORY FRAMING — FULL BODY SHOT (Variation 1 of 4): The frame MUST start at the top of the head and end below the feet (the entire body from head to toe is visible, with a small margin above the head and below the feet). This is NOT a medium shot, NOT a waist-up crop. Pose A — Standard Front Pose: face completely straight forward at the camera in a CONFIDENT UPRIGHT STANCE — weight evenly on both feet, arms RELAXED at the sides, shoulders open, chin level, NEUTRAL CALM EXPRESSION. The full outfit silhouette must be clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE.",
+          "MANDATORY FRAMING — FULL BODY SHOT (Variation 2 of 4): Same FULL BODY framing as Variation 1 (head to toe visible, NOT a medium shot). Pose B — still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A: shift weight strongly to one leg (contrapposto), and place ONE HAND on the hip OR through the hair OR into a pants pocket (pick one naturally and effortlessly). The head and face ANGLE must be visibly different from Pose A (e.g. a slight head tilt, a small chin lift or drop, or a subtle head turn slightly off-axis). CRITICAL — KEEP THE SAME FACIAL EXPRESSION as Pose A: the expression itself does NOT change between Pose A and Pose B. Only the body posture, hand placement, and head/face ANGLE differ. This must look like a distinctly different photo moment from the same session, NOT a near-duplicate. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE.",
           focus3,
           focus4
       ];
@@ -1636,6 +1636,18 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       - Picture-in-picture, inset frame, overlay sub-image
                       - "Behind the scenes" composite or mood board layout
                       This API call produces ONE composed photograph showing ONE pose. The 4 variations are 4 SEPARATE API calls — never combine them into one image.
+
+                      =========================================
+                      #0.5 PRIORITY HIERARCHY (apply in this exact order; higher P overrides lower when they conflict)
+                      =========================================
+                      P1 (highest): MODEL FACE IDENTITY — race, skin tone, eye/nose/lip shape, jawline, all facial markers must match the uploaded face references verbatim. See PRIORITY 1 and RULE 1 for full details.
+                      P2: MAIN ITEM DETAILS — the main wardrobe item's exact fabric texture, color, prints, labels, trims, and silhouette must match its source image pixel-for-pixel. See RULE 1-C and RULE 4 for full details.
+                      P3: VARIATION FRAMING — this is one of 4 variations with a SPECIFIC framing assignment:
+                          - Variations 1 and 2 = MANDATORY FULL-BODY shots (head to toe visible).
+                          - Variations 3 and 4 = MANDATORY MEDIUM SHOTS focused on the main item region (upper-body waist-up for OUTER/TOP/ACC main items, lower-body waist-down for BOTTOM main items, feet close-up for SHOES main items).
+                          Read the variation-specific MANDATORY FRAMING instruction at the bottom — it is non-negotiable.
+                      P4: 4-IMAGE CONSISTENCY — same location / lighting / shadows / color grade / wardrobe across all 4 outputs; only camera position and pose vary.
+                      P5: POSE & EXPRESSION VARIETY — substantially different poses across the 4 variations, but never at the cost of P1, P2, or P3.
 
                       ROLE: You are an expert Image Compositor. You COMBINE the face from the FACE IMAGES (provided as Image [1] AND repeated as the LAST inputs for emphasis) with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+]. There ${faceImages.length > 1 ? `are ${faceImages.length} face reference images covering different angles` : 'is one face reference image'} — they ALL represent the SAME person and ALL must be used to lock identity.
                       ${customBgInstruction}
@@ -1972,8 +1984,8 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                     {(() => {
                       const t = items.find(i => i.id === mainItemId)?.type;
                       const isLower = t === 'BOTTOM' || t === 'SHOES';
-                      if (currentFitIndex === 0) return '정면 1';
-                      if (currentFitIndex === 1) return '정면 2';
+                      if (currentFitIndex === 0) return '전신 1';
+                      if (currentFitIndex === 1) return '전신 2';
                       if (currentFitIndex === 2) return isLower ? '하반신 정면' : '상반신 정면';
                       return isLower ? '하반신 사이드' : '상반신 사이드';
                     })()}
