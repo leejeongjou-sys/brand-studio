@@ -284,6 +284,52 @@ const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', api
   throw new Error(txt ? `모델 메시지: ${txt}` : "이미지 보정 결과가 없습니다.");
 };
 
+// --- FACE RESTORE PASS ---
+// Two-pass refinement: take a generated image and replace ONLY the face area using
+// the original face reference(s). Everything else stays identical.
+const faceRestorePass = async ({ apiKey, modelId = 'gemini-3.1-flash-image-preview', generatedImage, faceImages = [] }) => {
+  if (!generatedImage || faceImages.length === 0) throw new Error('faceRestorePass: missing inputs');
+
+  const restorationPrompt = `
+TASK: FACE-ONLY RESTORATION — surgical, single-image output.
+
+YOU WILL RECEIVE:
+- [Image 1] = the BASE photograph. Output MUST replicate this image pixel-for-pixel EXCEPT for the model's face.
+- [Image 2${faceImages.length > 1 ? ` through Image ${1 + faceImages.length}` : ''}] = face reference${faceImages.length > 1 ? 's (multiple angles of the same person)' : ''}. The ENTIRE facial identity comes from these references.
+
+MANDATORY:
+- Output a SINGLE full-frame image at the same aspect ratio as Image 1.
+- Keep the body, outfit, pose, hands, hair shape, background, lighting, shadows, color grade, and composition of [Image 1] absolutely unchanged.
+- Replace ONLY the facial features inside the head region: eye shape, eye spacing, eyelid fold, iris color, eyebrow shape, nose bridge, nostrils, nose tip, lip shape, philtrum, jawline, chin, cheekbones, ear shape, skin tone/undertone of the face, skin markers (freckles/moles/scars) — all from the reference face image(s).
+- Match the head angle, head position, and hair styling exactly as they appear in [Image 1].
+- Re-light the face naturally to match Image 1's existing lighting (same direction, intensity, color temperature).
+- Preserve facial micro-asymmetries and imperfections from the reference — DO NOT beautify, smooth, or average.
+
+PROHIBITED (each is a hard failure):
+- Generating a 2x2 grid / collage / split / diptych / contact sheet
+- Changing the outfit, body, pose, background, or composition
+- Producing a different person; drifting ethnicity, age, or skin tone
+- "Beautifying", "averaging", or "stylizing" the face
+
+Return ONE single photograph matching Image 1 in every aspect except with the reference face.`;
+
+  const parts = [
+    { text: restorationPrompt },
+    { inlineData: { mimeType: 'image/jpeg', data: generatedImage.split(',')[1] } },
+    ...faceImages.map(f => ({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } }))
+  ];
+
+  const { dataUrl } = await geminiGenerateImage({
+    primaryModelId: modelId,
+    fallbackModelId: null,
+    apiKey,
+    contentsParts: parts,
+    aspectRatio: '3:4',
+    qualityMode: 'std'
+  });
+  return dataUrl;
+};
+
 // --- CUSTOM HOOKS ---
 const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -319,7 +365,7 @@ const useAuth = () => {
 };
 
 const useSettings = (user) => {
-    const DEFAULT_SETTINGS = { apiKey: DEFAULT_API_KEY || '', highRes: false, modelId: MODEL_OPTIONS.PRO };
+    const DEFAULT_SETTINGS = { apiKey: DEFAULT_API_KEY || '', highRes: false, modelId: MODEL_OPTIONS.PRO, faceRestorePass: true };
     const [settings, setSettings] = useState(() => {
         try {
             const saved = localStorage.getItem('brand_studio_settings_v3');
@@ -1364,7 +1410,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 };
 
 const FittingRoomGenerator = ({ settings, showNotification }) => {
-  const [faceImage, setFaceImage] = useState(null);
+  const [faceImages, setFaceImages] = useState([]); // 최대 3장 (다각도)
   const [bodyImage, setBodyImage] = useState(null);
   const [items, setItems] = useState([
     { id: 1, type: 'OUTER', image: null, label: '아우터 (Outer)' },
@@ -1397,8 +1443,11 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
     const r = new FileReader();
     r.onload = async () => {
       try {
-        const img = await compressImage(r.result, 1024, 0.8);
-        if (type === 'face') setFaceImage(img);
+        // Face images get higher-quality compression (more pixels = stronger identity lock).
+        const img = type === 'face'
+          ? await compressImage(r.result, 1280, 0.95)
+          : await compressImage(r.result, 1024, 0.8);
+        if (type === 'face') setFaceImages(prev => prev.length < 3 ? [...prev, img] : prev);
         else if (type === 'body') setBodyImage(img);
         else if (type === 'item' && id) {
           setItems(prev => prev.map(item => item.id === id ? { ...item, image: img } : item));
@@ -1407,6 +1456,26 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       } catch { /* ignore */ }
     };
     r.readAsDataURL(file);
+  };
+
+  const handleFaceUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    const available = 3 - faceImages.length;
+    if (available <= 0) return showNotification("얼굴 사진은 최대 3장까지 업로드 가능합니다.", "error");
+    Array.from(files).slice(0, available).forEach(file => {
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const img = await compressImage(r.result, 1280, 0.95);
+          setFaceImages(prev => prev.length < 3 ? [...prev, img] : prev);
+        } catch { /* ignore */ }
+      };
+      r.readAsDataURL(file);
+    });
+  };
+
+  const removeFaceAt = (idx) => {
+    setFaceImages(prev => prev.filter((_, i) => i !== idx));
   };
 
   const addItemSlot = () => {
@@ -1451,7 +1520,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
   };
 
   const handleGenerateFit = async () => {
-    if (!faceImage || !bodyImage) return showNotification("모델의 얼굴과 전신 사진은 필수입니다.", "error");
+    if (faceImages.length === 0 || !bodyImage) return showNotification("모델의 얼굴(1~3장)과 전신 사진은 필수입니다.", "error");
     const activeItems = items.filter(i => i.image);
     if (activeItems.length === 0) return showNotification("적어도 하나 이상의 아이템을 등록해주세요.", "error");
     if (bgTone === 'custom' && !customBgImage) return showNotification("커스텀 배경 이미지를 업로드해주세요.", "error");
@@ -1461,7 +1530,9 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
     setCurrentFitIndex(0);
 
     try {
-      const compFace = await compressImage(faceImage, 1024, 0.8);
+      // Face images are kept at high quality (1280 @ 0.95) for maximum identity preservation.
+      const compFaces = await Promise.all(faceImages.map(f => compressImage(f, 1280, 0.95)));
+      const compPrimaryFace = compFaces[0]; // bookend reference
       const compBody = await compressImage(bodyImage, 1024, 0.8);
       const compItems = await Promise.all(activeItems.map(async (item) => ({
         ...item,
@@ -1538,9 +1609,14 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       - "Behind the scenes" composite or mood board layout
                       This API call produces ONE composed photograph showing ONE pose. The 4 variations are 4 SEPARATE API calls — never combine them into one image.
 
-                      ROLE: You are an expert Image Compositor. You COMBINE the face from Image [1] with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+].
+                      ROLE: You are an expert Image Compositor. You COMBINE the face from the FACE IMAGES (provided as Image [1] AND repeated as the LAST inputs for emphasis) with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+]. There ${faceImages.length > 1 ? `are ${faceImages.length} face reference images covering different angles` : 'is one face reference image'} — they ALL represent the SAME person and ALL must be used to lock identity.
                       ${customBgInstruction}
                       ${detailInputText}
+
+                      =========================================
+                      PRIORITY C — FACE-SIZE GUARANTEE (prevents identity drift in distant shots)
+                      =========================================
+                      The face MUST always occupy enough pixels for identity to be readable. In any framing — even full-body shots — the face area MUST be at least ~6-8% of the frame height (a normal full-body fashion shot, not a tiny figure in a landscape). If a requested framing would shrink the face below that threshold, tighten the camera until the face has sufficient detail. NEVER place the model so far away that the face becomes a smudge. The face size guarantee overrides framing distance instructions when they conflict.
 
                       =========================================
                       #1 ABSOLUTE NON-NEGOTIABLE PRIORITY — IDENTITY PRESERVATION
@@ -1623,7 +1699,9 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
                       ${HIGH_END_STYLE_PROMPT}
                     ` },
-                    { inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } },
+                    // [Image 1] = primary face (front of attention window)
+                    { inlineData: { mimeType: "image/jpeg", data: compPrimaryFace.split(',')[1] } },
+                    // [Image 2] = body
                     { inlineData: { mimeType: "image/jpeg", data: compBody.split(',')[1] } }
                   ];
 
@@ -1634,6 +1712,13 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
                   }
 
+                  // BOOKEND: re-attach all face images at the END of the parts array.
+                  // Models give more weight to inputs at the start AND the end of the
+                  // attention window — sending faces twice strengthens identity lock.
+                  for (const face of compFaces) {
+                      parts.push({ inlineData: { mimeType: "image/jpeg", data: face.split(',')[1] } });
+                  }
+
                   const { dataUrl } = await geminiGenerateImage({
                     primaryModelId: MODEL_OPTIONS.PRO,
                     fallbackModelId: null,
@@ -1642,7 +1727,24 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                     aspectRatio: '3:4',
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
-                  resolve(dataUrl);
+
+                  // OPTIONAL FACE-RESTORE PASS: take the generated image and send it back
+                  // to the model with the primary face image to enforce face identity. Costs
+                  // an extra API call per variation but dramatically improves face fidelity.
+                  let finalDataUrl = dataUrl;
+                  if (settings.faceRestorePass) {
+                      try {
+                          finalDataUrl = await faceRestorePass({
+                              apiKey: settings.apiKey || DEFAULT_API_KEY,
+                              modelId: MODEL_OPTIONS.PRO,
+                              generatedImage: dataUrl,
+                              faceImages: compFaces
+                          });
+                      } catch (e) {
+                          console.warn('Face restore pass failed, using original generation:', e);
+                      }
+                  }
+                  resolve(finalDataUrl);
               } catch(e) { reject(e); }
           });
       });
@@ -1676,14 +1778,38 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
           <div>
             <h3 className="text-xl font-black uppercase mb-2 flex items-center gap-2"><UserCheck className="w-6 h-6" /> Model Source</h3>
-            <p className="text-sm text-gray-600 mb-4 font-medium">동일한 모델의 2장 사진을 업로드하세요. AI가 얼굴과 전신을 하나의 모델로 합성합니다.</p>
+            <p className="text-sm text-gray-600 mb-4 font-medium">동일한 모델의 얼굴(최대 3장 — 다각도면 이목구비 보존이 강해짐) + 전신을 업로드하세요. AI가 합성합니다.</p>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col">
-                <span className="text-sm font-bold uppercase mb-2 bg-black text-white px-2 py-1 w-fit">1. Face Closeup </span>
-                <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'face'); }} className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
-                  {faceImage ? <img src={faceImage} className="w-full h-full object-cover" alt="Face" /> : <div className="text-center"><ImageIcon className="w-8 h-8 mx-auto text-gray-300 mb-2"/><span className="text-sm font-bold text-gray-400">얼굴 클로즈업</span><span className="text-xs text-gray-400 mt-1 block">눈/코/입 선명하게</span></div>}
-                  <input id="face-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'face')} />
-                </div>
+                <span className="text-sm font-bold uppercase mb-2 bg-black text-white px-2 py-1 w-fit">1. Face Closeups ({faceImages.length}/3)</span>
+                {faceImages.length > 0 ? (
+                  <div className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white p-2 flex flex-col gap-2">
+                    <div className="flex-1 relative border border-gray-200 overflow-hidden">
+                      <img src={faceImages[0]} className="w-full h-full object-contain absolute inset-0" alt="Primary Face"/>
+                      <button onClick={() => removeFaceAt(0)} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-3 h-3"/></button>
+                      <span className="absolute bottom-1 left-1 bg-black text-white text-[9px] font-bold px-1 py-0.5">PRIMARY</span>
+                    </div>
+                    {faceImages.length > 1 && (
+                      <div className="flex gap-1 shrink-0 h-14">
+                        {faceImages.slice(1).map((img, idx) => (
+                          <div key={idx+1} className="flex-1 relative border border-gray-200 overflow-hidden">
+                            <img src={img} className="w-full h-full object-cover" alt={`Face ${idx+2}`}/>
+                            <button onClick={() => removeFaceAt(idx + 1)} className="absolute top-0.5 right-0.5 p-0.5 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-2.5 h-2.5"/></button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {faceImages.length < 3 && (
+                      <button onClick={() => document.getElementById('face-upload').click()} className="w-full py-1.5 bg-gray-100 text-black border border-gray-300 text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-gray-200 transition-colors shrink-0"><Plus className="w-3 h-3"/> 각도 추가 ({faceImages.length}/3)</button>
+                    )}
+                    <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
+                  </div>
+                ) : (
+                  <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleFaceUpload(e.dataTransfer.files); }} className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+                    <div className="text-center"><ImageIcon className="w-8 h-8 mx-auto text-gray-300 mb-2"/><span className="text-sm font-bold text-gray-400">얼굴 클로즈업</span><span className="text-xs text-gray-400 mt-1 block">눈/코/입 선명하게<br/>최대 3장 다각도</span></div>
+                    <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
+                  </div>
+                )}
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-bold uppercase mb-2 bg-gray-200 text-black px-2 py-1 w-fit">2. Full Body</span>
@@ -1761,7 +1887,7 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       className="flex-1 h-32 p-4 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed overflow-y-auto resize-none"
                       placeholder="예: 모자는 푹 눌러쓰고, 신발은 스포티하게 연출해주세요..."
                     />
-                    <button onClick={handleGenerateFit} disabled={isGenerating || !faceImage || !bodyImage} className={`w-36 text-white font-bold text-base uppercase transition-all flex flex-col items-center justify-center gap-1 ${generatedFits.length > 0 ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                    <button onClick={handleGenerateFit} disabled={isGenerating || faceImages.length === 0 || !bodyImage} className={`w-36 text-white font-bold text-base uppercase transition-all flex flex-col items-center justify-center gap-1 ${generatedFits.length > 0 ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
                         {isGenerating ? (
                           <><Loader2 className="w-6 h-6 animate-spin" /> <span>피팅 4장<br/>생성 중...</span></>
                         ) : (
@@ -2489,7 +2615,15 @@ const SettingsModal = ({ isOpen, onClose, settings, onUpdate }) => {
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-6 h-6" /></button>
         <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-2"><Settings className="w-6 h-6" /> 시스템 설정</h3>
         <div className="mb-6"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><Key className="w-3 h-3" /> Google Gemini API Key</label><input type="password" value={key} onChange={e => setKey(e.target.value)} className="w-full p-3 border-2 border-black font-mono text-sm mb-2" placeholder="브라우저 및 클라우드에 자동 저장됩니다" /></div>
-        <div className="mb-8"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3" /> 이미지 해상도</label><div className="flex gap-2"><button onClick={() => onUpdate({ ...settings, highRes: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.highRes ? 'bg-black text-white' : ''}`}>Standard</button><button onClick={() => onUpdate({ ...settings, highRes: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.highRes ? 'bg-black text-white' : ''}`}>Ultra (4K)</button></div></div>
+        <div className="mb-6"><label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3" /> 이미지 해상도</label><div className="flex gap-2"><button onClick={() => onUpdate({ ...settings, highRes: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.highRes ? 'bg-black text-white' : ''}`}>Standard</button><button onClick={() => onUpdate({ ...settings, highRes: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.highRes ? 'bg-black text-white' : ''}`}>Ultra (4K)</button></div></div>
+        <div className="mb-8">
+          <label className="block text-xs font-bold mb-2 uppercase flex items-center gap-2"><UserCheck className="w-3 h-3" /> 얼굴 복원 패스 (피팅룸)</label>
+          <p className="text-[11px] text-gray-500 mb-2 font-medium">생성 후 얼굴 영역만 한번 더 다듬어 이목구비를 최대한 보존합니다. 생성 시간이 2배가 됩니다.</p>
+          <div className="flex gap-2">
+            <button onClick={() => onUpdate({ ...settings, faceRestorePass: true })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${settings.faceRestorePass ? 'bg-black text-white' : ''}`}>ON (정확도 우선)</button>
+            <button onClick={() => onUpdate({ ...settings, faceRestorePass: false })} className={`flex-1 py-3 border-2 text-xs font-bold uppercase ${!settings.faceRestorePass ? 'bg-black text-white' : ''}`}>OFF (속도 우선)</button>
+          </div>
+        </div>
         <button onClick={() => { onUpdate({ ...settings, apiKey: key, modelId: MODEL_OPTIONS.PRO }); onClose(); }} className="w-full bg-black text-white py-4 font-bold uppercase hover:opacity-80">설정 저장</button>
       </div>
     </div>
