@@ -68,6 +68,71 @@ const MODEL_OPTIONS = {
 
 const ANALYSIS_MODEL_ID = 'gemini-3.1-flash-image-preview';
 
+// --- MODEL PROFILES (snippet-driven identity reinforcement) ---
+// When a fitting-room prompt contains one of these tokens, the corresponding
+// lock text is injected at the top of the generation prompt as a hard identity rule.
+const MODEL_PROFILES = [
+  {
+    id: 'seojun',
+    label: '서준 모델 고정',
+    token: '[서준 모델 프로필 적용]',
+    lockText: `SEOJUN MODEL PROFILE — STRICT IDENTITY LOCK (HIGHEST PRIORITY, OVERRIDES any conflicting instruction):
+
+The model in all 4 generated images IS the Korean male named 서준. Preserve verbatim the following identity:
+
+FACE:
+- Face shape: oval with soft jawline, narrow chin
+- Eyes: monolid with subtle double-lid crease, dark brown irises, balanced inter-pupillary distance
+- Eyebrows: straight, medium-thick, natural black, slight arch at outer third
+- Nose: straight bridge, narrow, refined tip
+- Lips: medium fullness, slightly defined cupid's bow, neutral pink tone
+- Skin: clear, smooth, neutral-warm undertone, no visible blemishes
+- Hair: jet black, soft natural texture, side-swept fringe over forehead
+
+DEMOGRAPHICS:
+- Age: late teens / early 20s
+- Ethnicity: Korean male
+
+PROPORTIONS (mathematically locked):
+- Facial proportions and bone structure mathematically identical to the reference (eye spacing, nose-to-mouth distance, forehead-to-chin ratio)
+
+BODY:
+- Slim, lean Korean male physique
+- Height ≈ 178cm
+- Build: narrow shoulders (shoulder width ≈ 1.6x head width), long limbs
+- Proportions: 8-head body ratio, long legs
+- Skin tone consistent with face: neutral-warm
+
+NEGATIVE — each is a HARD FAILURE:
+- Different person
+- Altered facial features
+- Plastic skin / CGI face
+- Exaggerated jawline
+- Different eye color or hair color
+- Western facial features
+- Aged appearance
+- Distorted proportions
+- Extra fingers / extra limbs
+- Watermark / text / logo overlay
+
+This profile lock RUNS IN ADDITION TO the uploaded reference face images — both sources describe the SAME person, and the model identity must match BOTH the images AND this written profile.`,
+  },
+];
+
+// Strip all known profile tokens from the user prompt and return the list of activated profiles.
+const expandModelProfileTokens = (userPrompt) => {
+  let cleanText = userPrompt || '';
+  const activeProfiles = [];
+  for (const profile of MODEL_PROFILES) {
+    if (cleanText.includes(profile.token)) {
+      activeProfiles.push(profile);
+      // Remove the token (with surrounding whitespace/commas) from the visible prompt
+      cleanText = cleanText.split(profile.token).join('').replace(/\s*,\s*,\s*/g, ', ').replace(/^\s*,\s*/, '').replace(/\s*,\s*$/, '').trim();
+    }
+  }
+  return { cleanText, activeProfiles };
+};
+
 // --- SINGLETON FIREBASE INITIALIZATION ---
 let firebaseApp;
 let firebaseAuth;
@@ -1389,7 +1454,8 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
       "드롭숄더",
       "극도의 오버핏",
       "벌룬 배럴핏",
-      "한 손은 바지 주머니에 자연스럽게 넣고, 다른 손은 옆에 편하게 내려둔 자세 (어깨 힘 빼고 자연스러운 무게중심)"
+      "한 손은 바지 주머니에 자연스럽게 넣고, 다른 손은 옆에 편하게 내려둔 자세 (어깨 힘 빼고 자연스러운 무게중심)",
+      ...MODEL_PROFILES.map(p => p.token)
   ];
 
   const handleImageUpload = async (file, type, id = null) => {
@@ -1485,6 +1551,14 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
 
     try {
       // Face images are kept at high quality (1280 @ 0.95) for maximum identity preservation.
+      // Expand any model-profile tokens (e.g. 서준) embedded in fittingPrompt — the tokens
+      // are stripped from the visible director's notes and the corresponding lock text
+      // is injected at the top of the prompt as a high-priority identity rule.
+      const { cleanText: cleanFittingPrompt, activeProfiles } = expandModelProfileTokens(fittingPrompt || '');
+      const profileLockBlock = activeProfiles.length > 0
+        ? `\n\n=========================================\n#1A — ACTIVE MODEL PROFILES (HARD IDENTITY LOCKS)\n=========================================\n${activeProfiles.map(p => p.lockText).join('\n\n---\n\n')}\n=========================================\n`
+        : '';
+
       const compFaces = await Promise.all(faceImages.map(f => compressImage(f, 1280, 0.95)));
       const compPrimaryFace = compFaces[0]; // bookend reference
       const compBody = await compressImage(bodyImage, 1024, 0.8);
@@ -1648,8 +1722,10 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                       - PROHIBITED: do NOT introduce new props, do NOT shift the backdrop hue, do NOT change the lighting angle, do NOT add or remove atmospheric effects (haze/dust/glow) between variations. ANY drift in environment, lighting, color, or wardrobe between the 4 outputs is a HARD FAILURE.
                       ${detailDesc}
 
+                      ${profileLockBlock}
+
                       DIRECTOR'S NOTES:
-                      "${fittingPrompt}"
+                      "${cleanFittingPrompt}"
 
                       ${HIGH_END_STYLE_PROMPT}
                     ` },
@@ -1811,11 +1887,20 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                </div>
 
                <div className="flex flex-wrap gap-2 mb-2">
-                 {fittingSnippets.map(s => (
-                    <button key={s} onClick={() => appendPromptSnippet(s, setFittingPrompt)} className="text-[11px] font-bold px-2 py-1 bg-gray-100 border border-gray-200 hover:bg-gray-200 text-gray-700 transition-colors">
-                      + {s}
-                    </button>
-                 ))}
+                 {fittingSnippets.map(s => {
+                    const profile = MODEL_PROFILES.find(p => p.token === s);
+                    const isProfile = !!profile;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => appendPromptSnippet(s, setFittingPrompt)}
+                        title={isProfile ? `클릭 시 ${profile.label} 프로필이 프롬프트에 자동 주입됩니다 (얼굴 이미지와 함께 작동)` : undefined}
+                        className={`text-[11px] font-bold px-2 py-1 border transition-colors ${isProfile ? 'bg-black text-white border-black hover:bg-gray-800' : 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-700'}`}
+                      >
+                        + {isProfile ? profile.label : s}
+                      </button>
+                    );
+                 })}
                </div>
                <div className="flex gap-4 items-stretch">
                    <textarea
