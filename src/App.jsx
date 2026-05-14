@@ -2062,9 +2062,14 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
   const [selectedLighting, setSelectedLighting] = useState('softbox');
 
   const [prompt, setPrompt] = useState('');
-  const [generatedImage, setGeneratedImage] = useState(null);
+  const [outputMode, setOutputMode] = useState('group'); // 'group' (단체컷 1장) | 'individual' (제품별 단컷 N장)
+  const [generatedImages, setGeneratedImages] = useState([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showZoomModal, setShowZoomModal] = useState(false);
+
+  // Convenience accessor — many of the existing render branches expect a single image
+  const generatedImage = generatedImages[currentImageIndex] || null;
 
   const productSnippets = ["다림질한 듯 빳빳하게", "자연스러운 주름 유지", "그림자를 길게 연출", "고급스러운 반사광 추가", "선명한 텍스처 강조"];
 
@@ -2220,15 +2225,14 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
     if (selectedBg === 'custom' && !customBgImage) return showNotification("커스텀 배경 이미지를 업로드해주세요.", "error");
 
     setIsGenerating(true);
+    setGeneratedImages([]);
+    setCurrentImageIndex(0);
     try {
       const compProducts = await Promise.all(productImages.map(img => compressImage(img, 1024, 0.8)));
       const compDetails = await Promise.all(productDetailImages.map(img => compressImage(img, 1024, 0.8)));
-      const isGroup = compProducts.length > 1;
-      const productCount = compProducts.length;
       const detailCount = compDetails.length;
 
-      // STEP 1: Pre-analyze the mood reference layout (if provided) so the generation model
-      // receives a structured textual blueprint rather than having to infer the layout itself.
+      // STEP 1: Pre-analyze the mood reference layout (if provided) once and reuse across all calls.
       let moodAnalysis = null;
       if (moodReferenceImage) {
         try {
@@ -2238,6 +2242,14 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
           console.warn("Mood reference analysis failed, continuing without structured analysis:", e);
         }
       }
+
+      // Compress shared aux images once
+      const compCustomBg = (selectedBg === 'custom' && customBgImage)
+        ? await compressImage(customBgImage, 1024, 0.8)
+        : null;
+      const compMoodRef = moodReferenceImage
+        ? await compressImage(moodReferenceImage, 1024, 0.8)
+        : null;
 
       let bgDesc = "";
       if (selectedBg === 'whiteboard') bgDesc = "clean studio whiteboard background, pure white, infinite white seamless backdrop";
@@ -2258,9 +2270,14 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
         ? `User's Additional Instructions (Apply these changes if requested): ${prompt}`
         : `CRITICAL FORM PRESERVATION: You MUST keep the EXACT physical silhouette, outline, folds, and wrinkles exactly as shown in the input image. DO NOT "tidy up", "iron out", or auto-correct the shape. If the original is wrinkled, messy, or asymmetrical, the output MUST be perfectly identical in its wrinkled/messy state.`;
 
-      let moodRefDesc = "";
-      let moodRefInputText = "";
-      if (moodReferenceImage) {
+      // Per-call generation: takes a subset of products and returns the generated data URL.
+      const runGeneration = async (productsForCall) => {
+        const isGroup = productsForCall.length > 1;
+        const productCount = productsForCall.length;
+
+        let moodRefDesc = "";
+        let moodRefInputText = "";
+        if (moodReferenceImage) {
           const analysisBlock = moodAnalysis
               ? `
             사전 분석 결과 (PRE-ANALYZED LAYOUT BLUEPRINT — follow this EXACTLY):
@@ -2336,55 +2353,77 @@ ${analysisBlock}
             - STRICT PROHIBITION: The detail cut images MUST NOT appear as standalone objects in the final composition. They are ONLY references for micro-detail accuracy applied to the main product${isGroup ? 's' : ''}.`
         : '';
 
-      const parts = [
-        { text: `
-            TASK: ${taskLine}
+        const parts = [
+          { text: `
+              TASK: ${taskLine}
 
-            CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
-            CRITICAL RULE 2: SCENE SETUP - ${moodReferenceImage
-                ? `The display mode (laid flat / hanging / draped / folded stacks / mixed) is DETERMINED BY the MOOD REFERENCE LAYOUT BLUEPRINT below. DO NOT default to flat-lay if the reference shows hanging or other arrangements. Follow the blueprint's display mode exactly.`
-                : (isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.')}
-            CRITICAL RULE 3: CAMERA - ${moodReferenceImage
-                ? `Match the camera angle/framing implied by the MOOD REFERENCE LAYOUT BLUEPRINT (e.g. if hanging garments are shown frontally, use a front-facing camera; if flat-lay, use top-down).`
-                : `Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface).`}
-            ${moodRefInputText}
+              CRITICAL RULE 1: NO HUMANS, NO PEOPLE, NO HANDS, NO BODY PARTS ALLOWED. ONLY THE PRODUCT${isGroup ? 'S' : ''}.
+              CRITICAL RULE 2: SCENE SETUP - ${moodReferenceImage
+                  ? `The display mode (laid flat / hanging / draped / folded stacks / mixed) is DETERMINED BY the MOOD REFERENCE LAYOUT BLUEPRINT below. DO NOT default to flat-lay if the reference shows hanging or other arrangements. Follow the blueprint's display mode exactly.`
+                  : (isGroup ? `All ${productCount} products are lying completely FLAT on the same single background surface.` : 'The product is lying completely FLAT on the selected background surface.')}
+              CRITICAL RULE 3: CAMERA - ${moodReferenceImage
+                  ? `Match the camera angle/framing implied by the MOOD REFERENCE LAYOUT BLUEPRINT (e.g. if hanging garments are shown frontally, use a front-facing camera; if flat-lay, use top-down).`
+                  : `Use a natural overhead top-down flat-lay perspective (shot directly from above, camera parallel to the surface).`}
+              ${moodRefInputText}
 ${productRule}${detailRule}
 
-            RULE 2: SHAPE & FOLD PRESERVATION
-            ${shapePreservationDesc}
+              RULE 2: SHAPE & FOLD PRESERVATION
+              ${shapePreservationDesc}
 
-            ART DIRECTION:
-            BACKGROUND: ${bgDesc}
-            LIGHTING SETUP: ${lightDesc}
-            ${moodRefDesc}
+              ART DIRECTION:
+              BACKGROUND: ${bgDesc}
+              LIGHTING SETUP: ${lightDesc}
+              ${moodRefDesc}
 
-            ${HIGH_END_STYLE_PROMPT}
-        ` },
-        ...compProducts.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } })),
-        ...compDetails.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } }))
-      ];
+              ${HIGH_END_STYLE_PROMPT}
+          ` },
+          ...productsForCall.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } })),
+          ...compDetails.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } }))
+        ];
 
-      if (selectedBg === 'custom' && customBgImage) {
-          const compCustomBg = await compressImage(customBgImage, 1024, 0.8);
-          parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
+        if (compCustomBg) {
+            parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
+        }
+        if (compMoodRef) {
+            parts.push({ inlineData: { mimeType: "image/jpeg", data: compMoodRef.split(',')[1] } });
+        }
+
+        const { dataUrl } = await geminiGenerateImage({
+          primaryModelId: MODEL_OPTIONS.PRO,
+          fallbackModelId: null,
+          apiKey: settings.apiKey || DEFAULT_API_KEY,
+          contentsParts: parts,
+          aspectRatio: '1:1',
+          qualityMode: settings.highRes ? 'ultra' : 'std'
+        });
+        return dataUrl;
+      }; // end runGeneration
+
+      // Decide which mode to execute
+      const wantIndividual = outputMode === 'individual' && compProducts.length > 1;
+
+      if (wantIndividual) {
+        // Generate N individual shots in parallel (one per product), with rate-limit spacing
+        const promises = compProducts.map((p, i) => (async () => {
+          await delay(i * 1500);
+          return runGeneration([p]);
+        })());
+        const results = await Promise.allSettled(promises);
+        const successful = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+        if (successful.length === 0) {
+          throw results.find(r => r.status === 'rejected')?.reason || new Error("개별 단컷 생성 실패");
+        }
+        setGeneratedImages(successful);
+        if (successful.length < compProducts.length) {
+          showNotification(`${compProducts.length}장 중 ${successful.length}장만 생성되었습니다.`);
+        } else {
+          showNotification(`제품별 단컷 ${successful.length}장이 성공적으로 생성되었습니다.`);
+        }
+      } else {
+        const dataUrl = await runGeneration(compProducts);
+        setGeneratedImages([dataUrl]);
+        showNotification("제품컷이 성공적으로 생성되었습니다.");
       }
-
-      if (moodReferenceImage) {
-          const compMoodRef = await compressImage(moodReferenceImage, 1024, 0.8);
-          parts.push({ inlineData: { mimeType: "image/jpeg", data: compMoodRef.split(',')[1] } });
-      }
-
-      const { dataUrl } = await geminiGenerateImage({
-        primaryModelId: MODEL_OPTIONS.PRO,
-        fallbackModelId: null,
-        apiKey: settings.apiKey || DEFAULT_API_KEY,
-        contentsParts: parts,
-        aspectRatio: '1:1',
-        qualityMode: settings.highRes ? 'ultra' : 'std'
-      });
-      setGeneratedImage(dataUrl);
-
-      showNotification("제품컷이 성공적으로 생성되었습니다.");
     } catch(e) {
         showNotification(String(e.message || e), 'error');
     } finally {
@@ -2434,6 +2473,20 @@ ${productRule}${detailRule}
               })}
             </div>
             <input id="product-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => { handleProductUpload(e.target.files); e.target.value = ''; }} />
+
+            {productImages.length > 1 && (
+              <div className="mt-2 p-2 bg-white border border-gray-300 flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase text-gray-600">출력 방식</span>
+                <div className="flex gap-1">
+                  <button onClick={() => setOutputMode('group')} className={`flex-1 py-2 text-[11px] font-bold transition-all border ${outputMode === 'group' ? 'bg-black text-white border-black' : 'bg-white text-gray-700 border-gray-300 hover:border-black'}`}>
+                    단체컷 1장
+                  </button>
+                  <button onClick={() => setOutputMode('individual')} className={`flex-1 py-2 text-[11px] font-bold transition-all border ${outputMode === 'individual' ? 'bg-black text-white border-black' : 'bg-white text-gray-700 border-gray-300 hover:border-black'}`}>
+                    제품별 단컷 {productImages.length}장
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 1. Product Detail Cuts (Label & Fabric Close-ups) */}
@@ -2532,13 +2585,20 @@ ${productRule}${detailRule}
 
         {/* Generate Action Area Fixed Bottom */}
         <div className="p-5 border-t border-black bg-white sticky bottom-0">
-            <button onClick={handleGenerate} disabled={isGenerating || productImages.length === 0} className={`w-full text-white py-4 font-bold text-base uppercase transition-opacity flex items-center justify-center gap-2 ${generatedImage ? 'bg-gray-800 hover:bg-black' : 'bg-black hover:bg-gray-800'} disabled:opacity-50`}>
-                {isGenerating ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> 제작 중...</>
-                ) : (
-                    <><Sparkles className="w-5 h-5 text-white" /> {generatedImage ? '다른 느낌으로 재생성' : '제품컷 생성하기'}</>
-                )}
-            </button>
+            {(() => {
+              const willIndividual = outputMode === 'individual' && productImages.length > 1;
+              const targetCount = willIndividual ? productImages.length : 1;
+              const targetLabel = willIndividual ? `제품별 단컷 ${productImages.length}장` : '단체컷 1장';
+              return (
+                <button onClick={handleGenerate} disabled={isGenerating || productImages.length === 0} className={`w-full text-white py-4 font-bold text-base uppercase transition-opacity flex items-center justify-center gap-2 ${generatedImage ? 'bg-gray-800 hover:bg-black' : 'bg-black hover:bg-gray-800'} disabled:opacity-50`}>
+                  {isGenerating ? (
+                      <><Loader2 className="w-5 h-5 animate-spin" /> {targetCount > 1 ? `${targetCount}장 제작 중...` : '제작 중...'}</>
+                  ) : (
+                      <><Sparkles className="w-5 h-5 text-white" /> {generatedImage ? `${targetLabel} 재생성` : `${targetLabel} 생성하기`}</>
+                  )}
+                </button>
+              );
+            })()}
         </div>
       </div>
 
@@ -2561,6 +2621,23 @@ ${productRule}${detailRule}
                         <Maximize2 className="w-12 h-12 text-black/50 drop-shadow-md" />
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-5 h-5 text-black" /></button>
+
+                    {generatedImages.length > 1 && (
+                      <>
+                        <button onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(p => Math.max(0, p - 1)); }} disabled={currentImageIndex === 0} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white/90 hover:bg-white text-black rounded-full disabled:opacity-30 z-20 shadow-md">
+                          <ChevronLeft className="w-6 h-6" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(p => Math.min(generatedImages.length - 1, p + 1)); }} disabled={currentImageIndex === generatedImages.length - 1} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white/90 hover:bg-white text-black rounded-full disabled:opacity-30 z-20 shadow-md">
+                          <ChevronRight className="w-6 h-6" />
+                        </button>
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-20 bg-black/70 px-3 py-1.5 rounded-full">
+                          <span className="text-white text-[11px] font-bold mr-1">{currentImageIndex + 1}/{generatedImages.length}</span>
+                          {generatedImages.map((_, i) => (
+                            <button key={i} onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(i); }} className={`w-2 h-2 rounded-full transition-colors ${i === currentImageIndex ? 'bg-white' : 'bg-white/40 hover:bg-white/70'}`} />
+                          ))}
+                        </div>
+                      </>
+                    )}
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center text-gray-400">
