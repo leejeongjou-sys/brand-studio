@@ -1810,38 +1810,38 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
               <div className="flex flex-col">
                 <span className="text-sm font-bold uppercase mb-2 bg-black text-white px-2 py-1 w-fit">1. Face Closeups ({faceImages.length}/3)</span>
                 {faceImages.length > 0 ? (
-                  <div className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white p-2 flex flex-col gap-2">
-                    <div className="flex-1 relative border border-gray-200 overflow-hidden">
+                  <div className="aspect-square border-2 border-dashed border-gray-400 bg-white p-1.5 flex flex-col gap-1">
+                    <div className="flex-1 relative border border-gray-200 overflow-hidden min-h-0">
                       <img src={faceImages[0]} className="w-full h-full object-contain absolute inset-0" alt="Primary Face"/>
                       <button onClick={() => removeFaceAt(0)} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-3 h-3"/></button>
                       <span className="absolute bottom-1 left-1 bg-black text-white text-[9px] font-bold px-1 py-0.5">PRIMARY</span>
                     </div>
-                    {faceImages.length > 1 && (
-                      <div className="flex gap-1 shrink-0 h-14">
-                        {faceImages.slice(1).map((img, idx) => (
-                          <div key={idx+1} className="flex-1 relative border border-gray-200 overflow-hidden">
-                            <img src={img} className="w-full h-full object-cover" alt={`Face ${idx+2}`}/>
-                            <button onClick={() => removeFaceAt(idx + 1)} className="absolute top-0.5 right-0.5 p-0.5 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-2.5 h-2.5"/></button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {faceImages.length < 3 && (
-                      <button onClick={() => document.getElementById('face-upload').click()} className="w-full py-1.5 bg-gray-100 text-black border border-gray-300 text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-gray-200 transition-colors shrink-0"><Plus className="w-3 h-3"/> 각도 추가 ({faceImages.length}/3)</button>
-                    )}
+                    <div className="flex gap-1 shrink-0 h-10">
+                      {faceImages.slice(1).map((img, idx) => (
+                        <div key={idx+1} className="flex-1 relative border border-gray-200 overflow-hidden">
+                          <img src={img} className="w-full h-full object-cover" alt={`Face ${idx+2}`}/>
+                          <button onClick={() => removeFaceAt(idx + 1)} className="absolute top-0.5 right-0.5 p-0.5 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-2.5 h-2.5"/></button>
+                        </div>
+                      ))}
+                      {faceImages.length < 3 && (
+                        <button onClick={() => document.getElementById('face-upload').click()} className="flex-1 bg-gray-100 text-black border border-gray-300 text-[9px] font-bold flex flex-col items-center justify-center gap-0.5 hover:bg-gray-200 transition-colors">
+                          <Plus className="w-3 h-3"/> 각도+
+                        </button>
+                      )}
+                    </div>
                     <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
                   </div>
                 ) : (
-                  <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleFaceUpload(e.dataTransfer.files); }} className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
-                    <div className="text-center"><ImageIcon className="w-8 h-8 mx-auto text-gray-300 mb-2"/><span className="text-sm font-bold text-gray-400">얼굴 클로즈업</span><span className="text-xs text-gray-400 mt-1 block">눈/코/입 선명하게<br/>최대 3장 다각도</span></div>
+                  <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleFaceUpload(e.dataTransfer.files); }} className="aspect-square border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+                    <div className="text-center px-2"><ImageIcon className="w-7 h-7 mx-auto text-gray-300 mb-1"/><span className="text-xs font-bold text-gray-400">얼굴 클로즈업</span><span className="text-[10px] text-gray-400 mt-0.5 block leading-tight">눈/코/입 선명하게<br/>최대 3장 다각도</span></div>
                     <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
                   </div>
                 )}
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-bold uppercase mb-2 bg-gray-200 text-black px-2 py-1 w-fit">2. Full Body</span>
-                <div onClick={() => document.getElementById('body-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'body'); }} className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
-                  {bodyImage ? <img src={bodyImage} className="w-full h-full object-contain" alt="Body" /> : <div className="text-center"><UserCheck className="w-8 h-8 mx-auto text-gray-300 mb-2"/><span className="text-sm font-bold text-gray-400">전신 사진</span><span className="text-xs text-gray-400 mt-1 block">머리부터 발끝까지</span></div>}
+                <div onClick={() => document.getElementById('body-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'body'); }} className="aspect-square border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+                  {bodyImage ? <img src={bodyImage} className="w-full h-full object-contain" alt="Body" /> : <div className="text-center px-2"><UserCheck className="w-7 h-7 mx-auto text-gray-300 mb-1"/><span className="text-xs font-bold text-gray-400">전신 사진</span><span className="text-[10px] text-gray-400 mt-0.5 block leading-tight">머리부터 발끝까지</span></div>}
                   <input id="body-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'body')} />
                 </div>
               </div>
