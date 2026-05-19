@@ -393,14 +393,18 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
     instance.lastFrame = { bytesBase64Encoded: last64, mimeType: lastMime };
   }
 
+  // Veo 3.1 Fast Preview is picky about parameters. Keep the request minimal:
+  // - personGeneration removed (not supported in this preview)
+  // - aspectRatio + durationSeconds only
   const body = {
     instances: [instance],
     parameters: {
       aspectRatio: mapAspectRatioToVeo(aspectRatio),
-      durationSeconds: Number(durationSeconds),
-      personGeneration: 'allow_adult'
+      durationSeconds: Number(durationSeconds)
     }
   };
+
+  try { console.log('[Veo request body]', JSON.stringify({ ...body, instances: body.instances.map(i => ({ ...i, image: '<base64>', lastFrame: i.lastFrame ? '<base64>' : undefined })) }).slice(0, 800)); } catch (e) { /* ignore */ }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning?key=${apiKey}`;
   const res = await fetchWithRetry(url, {
@@ -411,7 +415,10 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
   const raw = await res.text();
   let data;
   try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: { message: raw || 'Invalid JSON' } }; }
-  if (!res.ok) throw new Error(`Veo API Error ${res.status}: ${data?.error?.message || raw}`);
+  if (!res.ok) {
+    try { console.warn('[Veo error response]', raw?.slice(0, 1500)); } catch (e) { /* ignore */ }
+    throw new Error(`Veo API Error ${res.status}: ${data?.error?.message || raw}`);
+  }
   if (!data?.name) throw new Error('Veo 응답에 operation name이 없습니다.');
   return data.name; // e.g. "models/veo-3.1-fast-generate-preview/operations/abc123"
 };
