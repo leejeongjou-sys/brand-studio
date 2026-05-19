@@ -911,6 +911,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   const [faceImages, setFaceImages] = useState([]); // 다중 얼굴 이미지 지원
   const [generatedImages, setGeneratedImages] = useState([]);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
+  const [lastGenMode, setLastGenMode] = useState(null); // 'fullbody' | 'focus' | null
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [prompt, setPrompt] = useState(reference.prompt || '');
@@ -1088,11 +1089,15 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     } catch { showNotification("수정 실패", "error"); } finally { setIsRefining(false); }
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (mode = 'fullbody') => {
+    // mode: 'fullbody' (전신 2장) | 'focus' (포커스 2장 — targetFocus에 따라 상/하/신발)
     if (!targetImage) return showNotification("적용할 대상(제품/모델 전신) 이미지를 업로드해주세요.", "error");
     if (!prompt) return showNotification("프롬프트를 먼저 입력하거나 생성해주세요.", "error");
 
     setIsGenerating(true);
+    setGeneratedImages([]);
+    setCurrentImgIndex(0);
+    setLastGenMode(mode);
     try {
       const compTarget = await compressImage(targetImage, 1024, 0.8);
       const compRef = await compressImage(currentReference.image, 1024, 0.8);
@@ -1187,33 +1192,17 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     PRIORITY C — FACE-SIZE GUARANTEE (prevents identity drift in distant shots):
       The face MUST always occupy enough pixels to render identity correctly. If the requested framing would shrink the face below ~6% of the frame height (i.e. tiny in the distance), tighten the camera so the face area is sufficient. NEVER place the model so far away that the face becomes a smudge of pixels — pull the camera in until the face has detail. This rule overrides camera-distance instructions in any single variation.
 
-    PRIORITY D — PERSPECTIVE GUARD (prevents face distortion at extreme angles):
-      Low-angle and high-angle shots must use MODERATE tilt (no more than ~15-20° from horizontal). NEVER apply extreme foreshortening that would distort the chin, forehead, or facial proportions. Lens choice should be standard portrait equivalent (50-85mm full-frame look) — avoid wide-angle distortion on the face.
+    PRIORITY D — 2-IMAGE SCENE CONSISTENCY (HARD ENVIRONMENTAL LOCK):
+      Both generated images MUST look like they were shot in the SAME continuous photo session, in the SAME location, at the SAME moment in time. The following MUST be MATHEMATICALLY IDENTICAL across both outputs:
+      - LOCATION & BACKGROUND: same room/scene/landscape, same wall textures, same furniture & props (no new objects appear or disappear)
+      - LIGHTING SETUP & SHADOWS: same key/fill/rim light directions, intensities, color temperature, softness. Shadows shift only because the subject's pose moved.
+      - TIME-OF-DAY & ATMOSPHERE: same sun/window position, same haze/dust/weather, same ambient color cast.
+      - COLOR GRADING: same white balance, exposure, contrast, saturation, film grain.
+      - WARDROBE & STYLING: same outfit, hair, makeup, accessories in both frames.
 
-    PRIORITY E — 4-IMAGE SCENE CONSISTENCY (HARD ENVIRONMENTAL LOCK ACROSS ALL 4 OUTPUTS):
-      All 4 generated images MUST look like they were shot in the SAME continuous photo session, in the SAME location, at the SAME moment in time. Treat them as 4 frames captured back-to-back from a single fixed setup — only the camera angle/pose changes, NOTHING ELSE.
-      The following variables MUST be MATHEMATICALLY IDENTICAL across all 4 outputs:
-      - LOCATION & BACKGROUND: same exact room/scene/landscape, same wall textures, same furniture placement, same props in identical positions, same floor, same ceiling, same horizon line. No new objects appear or disappear between variations.
-      - LIGHTING SETUP: same key light direction, same key light intensity, same key light color temperature (Kelvin), same fill light, same rim/back light if any. Light source positions are FIXED.
-      - SHADOWS: same shadow direction, same shadow softness/hardness, same shadow density. Shadows shift only because the subject's pose changed — never because the lights moved.
-      - TIME-OF-DAY & ATMOSPHERE: same sun position (if outdoor), same window light angle (if indoor), same atmospheric haze/dust/weather, same ambient color cast.
-      - COLOR GRADING & TONE: same white balance, same exposure, same contrast, same saturation, same film grain character, same color science.
-      - LENS & CAMERA BODY: same lens family / focal length character, same depth of field aesthetic, same sensor look.
-      - WARDROBE: identical outfit on the model in all 4 frames — no changes to clothing, accessories, hair styling, or makeup.
-      ANY drift in lighting, location, props, weather, time-of-day, color grade, wardrobe, or styling between the 4 outputs is a HARD FAILURE.
-
-      CAMERA POSITION VARIETY (REQUIRED DIFFERENCE):
-      The PHOTOGRAPHER'S physical camera position MUST be visibly different in each of the 4 images — never duplicate the same camera placement across variations. Each variation captures the same fixed scene from a clearly distinct viewpoint (different distance, different height, and/or different horizontal/vertical angle relative to the subject and the locked environment). Two variations sharing the same camera placement is a HARD FAILURE. The scene/lights are locked; the photographer moves.
-
-      POSE & EXPRESSION VARIETY (REQUIRED SUBSTANTIAL DIFFERENCE):
-      The model's pose and facial expression MUST be SUBSTANTIALLY DIFFERENT in each of the 4 images — NOT subtle micro-variations. Each variation should pick a clearly distinct combination of:
-      - BODY POSTURE: standing tall / weight on one leg / leaning / walking / turning / crouching / hands on hips / arms crossed / one arm raised / hand in pocket / hand through hair (pick a distinctly different posture per variation)
-      - WEIGHT DISTRIBUTION: shift weight to left leg / right leg / both feet / forward / back
-      - ARM & HAND PLACEMENT: relaxed at sides / one hand on hip / both hands in pockets / one hand touching face or hair / arms crossed / one arm raised / holding the garment edge — choose distinctly different positions
-      - HEAD & GAZE: straight at camera / 3/4 turn / profile / looking down / looking up / looking off-frame
-      - FACIAL EXPRESSION: neutral / soft smile / pensive / intense / playful / serene — pick a clearly different expression for each variation, never duplicate
-      CONSTRAINT — OUTFIT VISIBILITY: every pose MUST still showcase the outfit cleanly. Do NOT obscure the main garment with extreme contortions, do NOT cross arms in a way that hides the chest of a top, do NOT cover the hemline with hands, do NOT crop the garment with body language. The outfit's silhouette and key details must remain readable in every pose.
-      Two variations sharing essentially the same pose or essentially the same expression is a HARD FAILURE.
+      POSE & EXPRESSION VARIETY (BETWEEN THE 2 VARIATIONS):
+      Within the locked framing assigned by the button (full body OR focus), the 2 variations must show clearly different poses and expressions — different weight distribution, different arm/hand placement, different head tilt and gaze, different micro-expression. Two variations sharing essentially the same pose or the same expression is a hard failure.
+      CONSTRAINT — OUTFIT VISIBILITY: every pose MUST still showcase the outfit cleanly. Do NOT obscure the main garment with extreme contortions, do NOT cover key details with hands.
 
     ${inputImagesText}
 
@@ -1246,32 +1235,38 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
       }
 
-      let var3Desc = "Variation 3: Waist-up medium shot (framing from the waist line up to the top of the head) in the EXACT SAME lighting and background environment. The camera is at chest-to-eye level. The frame MUST cut off precisely at the waistline — do NOT zoom in closer than the waist, and do NOT include the legs. This shows both the face and upper body styling naturally.";
-
-      const var4UpperPool = [
-          "Slight low-angle MEDIUM shot — camera positioned at chest level (slightly below) with a MODEST upward tilt (around 10-15° from horizontal, NOT extreme). Framed from the waist up to the top of the head (medium shot, NOT full body). Use a standard portrait lens equivalent (50-85mm) so the face proportions are NEVER distorted by wide-angle foreshortening. The upward angle creates a subtle, editorial perspective.",
-          "Slight high-angle MEDIUM shot — camera positioned just above the subject's eye level with a MODEST downward tilt (around 10-15° from horizontal, NOT extreme). Framed from the waist up to the top of the head (medium shot, NOT full body). Use a standard portrait lens equivalent (50-85mm) so the face proportions are NEVER distorted. The downward angle creates a subtle, intimate perspective."
-      ];
-      let var4Desc = `Variation 4: ${var4UpperPool[Math.floor(Math.random() * var4UpperPool.length)]} The lighting and background MUST be 100% identical to the reference. The face MUST remain undistorted and recognizable.`;
-
-      if (targetFocus === 'lower') {
-          var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
-          var4Desc = "Variation 4: Walking-motion candid lower body shot — the subject captured mid-stride from a slight 3/4 angle, showing natural movement and flow of the fabric on the legs. Camera at waist-to-thigh level, framing waist down to ankles. The lighting and background MUST be 100% identical to the reference.";
+      // Mode-aware 2-variation set. Framing is determined by the button mode (fullbody / focus).
+      // No camera-angle or perspective gymnastics — just pose and natural moment variation
+      // within the chosen framing.
+      let lookbookVariations;
+      if (mode === 'fullbody') {
+        lookbookVariations = [
+          "FULL BODY SHOT (Variation 1 of 2): the model's entire body from the top of the head down to below the feet is visible in the frame. The lighting and background MUST be 100% identical to the reference. Natural relaxed pose with weight evenly distributed.",
+          "FULL BODY SHOT (Variation 2 of 2): same FULL BODY framing as Variation 1 (head to toe visible). Same lighting and background. Pose is SUBSTANTIALLY DIFFERENT from Variation 1 — shift weight to one leg (contrapposto), change arm/hand placement (hand in pocket / hand on hip / hand through hair / arms relaxed differently), with a clearly different but natural micro-expression. The outfit silhouette must remain readable."
+        ];
+      } else {
+        // Focus mode — depends on targetFocus
+        if (targetFocus === 'lower') {
+          lookbookVariations = [
+            "LOWER BODY FOCUS (Variation 1 of 2): frame the model from the waist down to the ankles. Camera at waist-to-thigh level. The pants/skirt silhouette, drape, and fit are the clear subject. The lighting and background MUST be 100% identical to the reference.",
+            "LOWER BODY FOCUS (Variation 2 of 2): same lower-body framing (waist to ankles), captured mid-stride / walking motion from a slight 3/4 angle to show natural fabric flow on the legs. The lighting and background MUST be 100% identical to the reference."
+          ];
+        } else {
+          // upper / default
+          lookbookVariations = [
+            "UPPER BODY FOCUS (Variation 1 of 2): frame the model from the waistline up to the top of the head. The face IS in frame and clearly recognizable. Focus on neckline, shoulders, chest, sleeves, and the upper-body silhouette of the outfit. The lighting and background MUST be 100% identical to the reference.",
+            "UPPER BODY FOCUS (Variation 2 of 2): same upper-body framing (waist up to head). Same lighting and background. Pose is SUBSTANTIALLY DIFFERENT from Variation 1 — different head tilt, different arm/hand position, different but natural micro-expression. The face must remain recognizable."
+          ];
+        }
       }
-
-      const lookbookVariations = [
-          "Variation 1: Match the EXACT framing, composition, distance, and camera angle of the Reference Style Image (Image 2). Replicate the original perspective perfectly. The lighting and background MUST be 100% identical to the reference.",
-          "Variation 2: Wide shot — the full body of the subject is comfortably visible with moderate negative space around the figure (NOT an extreme wide shot, NOT environmental scale). The subject must occupy enough of the frame that the face remains clearly detailed and recognizable — face area MUST be large enough to preserve identity (at minimum the face should occupy ~6-8% of the frame height, equivalent to a standard full-body fashion shot, not a tiny figure in a landscape). The lighting and background MUST be 100% identical to the reference; only the camera distance changes (slightly further than Variation 1, but keep the face crisp).",
-          var3Desc,
-          var4Desc
-      ];
 
       const promises = lookbookVariations.map((variationDesc, i) => {
           return new Promise(async (resolve, reject) => {
               try {
                   await delay(i * 1500); // API Rate Limit 방지를 위한 지연
                   const localParts = [...parts];
-                  localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\n\n[HARD SCENE LOCK — IDENTICAL ACROSS ALL 4 OUTPUTS]\nThis is variation ${i + 1} of 4 from the SAME continuous photo session. The other 3 variations share the SAME location, SAME light setup, SAME props, SAME wardrobe, SAME time-of-day, SAME color grade, SAME atmosphere. The ONLY thing that changes between variations is the photographer's camera position / framing distance / and the subject's pose. EVERYTHING ELSE is mathematically identical:\n- Background scene, walls, floor, ceiling, props, furniture: pixel-locked to the reference\n- Key light direction & intensity, fill light, rim light: pixel-locked\n- Shadow direction, softness, density: identical (only the subject's body shape moves shadows naturally)\n- Time of day, sun position, atmospheric haze: identical\n- White balance, exposure, contrast, saturation, film grain: identical\n- Outfit, accessories, hair, makeup: identical\nDo NOT introduce any new objects, do NOT shift the light, do NOT change the wall texture or color, do NOT alter the wardrobe.\n\n[CAMERA POSITION — MUST BE VISIBLY DIFFERENT FROM THE OTHER 3 VARIATIONS]\nThe photographer is physically standing at a different location for variation ${i + 1} than for the other variations. The viewpoint (distance / height / horizontal-and-vertical angle relative to the locked scene) MUST be clearly distinct from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Never duplicate another variation's camera placement.\n\n[POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT FROM OTHER VARIATIONS]\nVariation ${i + 1}'s body posture, weight distribution, arm/hand placement, head angle, gaze direction, AND facial expression MUST all be distinctly different from variations ${[1, 2, 3, 4].filter(n => n !== i + 1).join(', ')}. Pick a unique pose category for this variation (e.g. weight on one leg with hand on hip / leaning forward with arms crossed / mid-stride walk / hand through hair / contemplative profile gaze, etc.) and a unique expression (neutral / soft smile / pensive / intense / playful — never duplicate). The variations must read as 4 visibly different moments in the session, not 4 minor takes of the same pose.\nCRITICAL CONSTRAINT: every pose MUST still showcase the outfit clearly — keep the garment's silhouette, key details, and hemline visible. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.\n\nSTRICTLY adhere to the Three Pillars and all 5 absolute priorities.` };
+                  const otherIdx = i === 0 ? 2 : 1;
+                  localParts[0] = { text: localParts[0].text + `\n\n[VARIATION ${i + 1} OF 2 — MANDATORY FRAMING]\n${variationDesc}\n\n[HARD SCENE LOCK — IDENTICAL TO THE OTHER VARIATION IN THIS BATCH]\nThis batch generates 2 images from the SAME continuous photo session. The other variation (${otherIdx}) shares the SAME location, SAME lighting, SAME shadows, SAME wardrobe, SAME color grade, SAME atmosphere. Only the pose and expression differ between the two — everything else is mathematically identical.\n\n[POSE & EXPRESSION — DIFFERENT FROM THE OTHER VARIATION]\nThe pose and facial micro-expression of this variation must be visibly different from variation ${otherIdx}. The outfit's silhouette and key details must remain readable.` };
 
                   const { dataUrl } = await geminiGenerateImage({
                     primaryModelId: MODEL_OPTIONS.PRO,
@@ -1299,10 +1294,11 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       setGeneratedImages(successfulImages);
       setCurrentImgIndex(0);
 
-      if (successfulImages.length < 4) {
-          showNotification(`4장 중 ${successfulImages.length}장만 생성되었습니다.`);
+      const modeLabel = mode === 'focus' ? '포커스컷' : '전신컷';
+      if (successfulImages.length < 2) {
+          showNotification(`${modeLabel} 2장 중 ${successfulImages.length}장만 생성되었습니다.`);
       } else {
-          showNotification("4장의 화보컷이 성공적으로 생성되었습니다.");
+          showNotification(`${modeLabel} 2장이 성공적으로 생성되었습니다.`);
       }
 
     } catch(e) { showNotification(String(e.message || e), 'error'); }
@@ -1500,17 +1496,34 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                 </div>
             </div>
 
-            <button onClick={handleGenerate} disabled={isGenerating || !targetImage || !prompt} className={`w-full text-white py-4 font-bold text-base uppercase mt-2 hover:opacity-90 disabled:opacity-50 flex flex-col items-center justify-center gap-1 ${generatedImages.length > 0 ? 'bg-gray-800' : 'bg-black'}`}>
-                {isGenerating ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> <span>{generatedImages.length > 0 ? '다시 생성 중 (4장)...' : '생성 중 (4장)...'}</span></>
-                ) : (
-                    generatedImages.length > 0 ? (
-                        <><div className="flex items-center gap-2"><RefreshCcw className="w-5 h-5 text-white" /> 다시 4장 생성하기 (REGENERATE)</div></>
+            {(() => {
+              const focusLabel = targetFocus === 'lower' ? '하반신' : '상반신';
+              const isDisabled = isGenerating || !targetImage || !prompt;
+              const wasFullBody = lastGenMode === 'fullbody' && generatedImages.length > 0;
+              const wasFocus = lastGenMode === 'focus' && generatedImages.length > 0;
+              return (
+                <div className="flex flex-col gap-2 mt-2">
+                  <button onClick={() => handleGenerate('fullbody')} disabled={isDisabled} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFullBody ? 'bg-gray-800' : 'bg-black'}`}>
+                    {isGenerating && lastGenMode === 'fullbody' ? (
+                      <><Loader2 className="w-5 h-5 animate-spin" /> 전신 2장 생성 중...</>
+                    ) : wasFullBody ? (
+                      <><RefreshCcw className="w-5 h-5" /> 전신 2장 재생성</>
                     ) : (
-                        <><div className="flex items-center gap-2"><Sparkles className="w-5 h-5 text-white" /> 화보 4장 자동생성 (GENERATE)</div></>
-                    )
-                )}
-            </button>
+                      <><Sparkles className="w-5 h-5" /> 전신 2장 자동생성</>
+                    )}
+                  </button>
+                  <button onClick={() => handleGenerate('focus')} disabled={isDisabled} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFocus ? 'bg-gray-800' : 'bg-black'}`}>
+                    {isGenerating && lastGenMode === 'focus' ? (
+                      <><Loader2 className="w-5 h-5 animate-spin" /> {focusLabel} 2장 생성 중...</>
+                    ) : wasFocus ? (
+                      <><RefreshCcw className="w-5 h-5" /> {focusLabel} 2장 재생성</>
+                    ) : (
+                      <><Sparkles className="w-5 h-5" /> {focusLabel} 포커스 2장 자동생성</>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
 
         </div>
