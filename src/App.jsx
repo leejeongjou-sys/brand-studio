@@ -2441,7 +2441,26 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
         try {
             const img = await compressImage(r.result, 1024, 0.8);
             if (type === 'customBg') setCustomBgImage(img);
-            if (type === 'moodRef') setMoodReferenceImage(img);
+            if (type === 'moodRef') {
+              setMoodReferenceImage(img);
+              // Fire-and-forget auto-detect of background & lighting from the mood reference.
+              // The user can still override the picks afterwards.
+              (async () => {
+                try {
+                  showNotification('무드 레퍼런스 배경·조명 분석 중...');
+                  const picks = await analyzeMoodReferenceStyle(img);
+                  if (picks?.bg) setSelectedBg(picks.bg);
+                  if (picks?.lighting) setSelectedLighting(picks.lighting);
+                  if (picks?.bg || picks?.lighting) {
+                    const bgLabel = bgOptions.find(b => b.id === picks?.bg)?.label || '-';
+                    const lightLabel = lightingOptions.find(l => l.id === picks?.lighting)?.label || '-';
+                    showNotification(`자동 설정 → 배경: ${bgLabel} / 조명: ${lightLabel}`);
+                  }
+                } catch (e) {
+                  console.warn('Style auto-detect failed:', e);
+                }
+              })();
+            }
         } catch { /* ignore */ }
     };
     r.readAsDataURL(file);
@@ -2487,6 +2506,60 @@ const ProductStudioGenerator = ({ settings, showNotification }) => {
 
   const removeDetailAt = (idx) => {
     setProductDetailImages(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Auto-detect background tone + lighting style from a mood reference image,
+  // and snap selectedBg / selectedLighting to the closest match.
+  const analyzeMoodReferenceStyle = async (moodImageDataUrl) => {
+    const apiKeyToUse = settings?.apiKey || DEFAULT_API_KEY;
+    if (!apiKeyToUse) return null;
+    try {
+      const compMood = await compressImage(moodImageDataUrl, 1024, 0.8);
+      const stylePrompt = `이미지를 분석해 배경과 조명을 분류해줘. 반드시 JSON만 출력. 다른 텍스트, 코드블럭, 설명 금지.
+
+배경(bg) 후보 (한 개 선택):
+- whiteboard: 순수한 흰색 무배경 cyclorama, 빛망울/먼지 없음
+- blackboard: 어두운 검정 무배경, 매트한 질감
+- concrete: 회색 콘크리트/시멘트 표면
+- linen: 베이지·아이보리 린넨 천 같은 패브릭
+- white_paint: 흰색 페인트 마감 바닥/벽
+- dark_grey_paint: 어두운 회색 페인트 마감
+- ghost: 제품이 공중에 떠있는 ghost mannequin (배경은 순백색)
+
+조명(lighting) 후보 (한 개 선택):
+- softbox: 부드러운 디퓨즈 스튜디오 조명, 균일한 그림자
+- flash: 강한 직접광, 진한 대비, 선명한 그림자
+- strong_natural: 강한 자연광/햇빛, 깊은 그림자 (골든아워)
+- soft_natural: 부드러운 창광/흐린 날 자연광
+
+출력 형식 (정확히 JSON, 키 2개):
+{"bg":"<id>","lighting":"<id>"}`;
+
+      const parts = [
+        { text: stylePrompt },
+        { inlineData: { mimeType: 'image/jpeg', data: compMood.split(',')[1] } }
+      ];
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`;
+      const res = await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts }] })
+      });
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!text) return null;
+      // Strip code fences if model wrapped output in ```json ... ```
+      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      const validBg = ['whiteboard', 'blackboard', 'concrete', 'linen', 'white_paint', 'dark_grey_paint', 'ghost'];
+      const validLighting = ['softbox', 'flash', 'strong_natural', 'soft_natural'];
+      const bgPick = validBg.includes(parsed.bg) ? parsed.bg : null;
+      const lightPick = validLighting.includes(parsed.lighting) ? parsed.lighting : null;
+      return { bg: bgPick, lighting: lightPick };
+    } catch (e) {
+      console.warn('[analyzeMoodReferenceStyle] failed:', e);
+      return null;
+    }
   };
 
   const analyzeMoodReferenceLayout = async (moodImageDataUrl) => {
@@ -2864,9 +2937,26 @@ ${productRule}${detailRule}
             </div>
           </div>
 
-          {/* 2. Background Selection */}
+          {/* 2. Mood Reference Image (Optional) — MOVED UP, auto-detects bg + lighting */}
           <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">2. 배경 선택</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">2. 무드 레퍼런스 (선택)</h3>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스의 <b>제품 배치 + 색감·톤</b> 참고. 업로드 시 아래 <b>배경·조명도 자동 감지</b>되어 채워집니다. (수동 변경 가능)</p>
+            <div onClick={() => document.getElementById('mood-ref-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'moodRef'); }} className="h-40 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+              {moodReferenceImage ? (
+                <>
+                  <img src={moodReferenceImage} className="w-full h-full object-contain p-2" alt="Mood Reference" />
+                  <button onClick={(e) => { e.stopPropagation(); setMoodReferenceImage(null); }} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
+                </>
+              ) : (
+                <div className="text-center p-4 text-gray-400"><UploadCloud className="w-7 h-7 mx-auto mb-1" /><p className="font-bold text-xs uppercase">무드 레퍼런스 업로드</p><p className="text-[10px] mt-1 text-gray-400">예) 분위기 참고용 화보, 광고컷</p></div>
+              )}
+              <input id="mood-ref-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'moodRef')} />
+            </div>
+          </div>
+
+          {/* 3. Background Selection */}
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">3. 배경 선택 {moodReferenceImage && <span className="text-[10px] font-medium normal-case text-gray-500">(무드 레퍼런스로 자동 설정됨 — 수동 변경 가능)</span>}</h3>
             <div className="grid grid-cols-4 gap-2">
                 {bgOptions.map(bg => (
                     <button key={bg.id} onClick={() => setSelectedBg(bg.id)} className={`p-2 text-center border-2 transition-all ${selectedBg === bg.id ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
@@ -2886,32 +2976,15 @@ ${productRule}${detailRule}
             )}
           </div>
 
-          {/* 2. Lighting Selection */}
+          {/* 4. Lighting Selection */}
           <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">3. 조명 질감 선택</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">4. 조명 질감 선택 {moodReferenceImage && <span className="text-[10px] font-medium normal-case text-gray-500">(무드 레퍼런스로 자동 설정됨 — 수동 변경 가능)</span>}</h3>
             <div className="grid grid-cols-4 gap-2">
                 {lightingOptions.map(light => (
                     <button key={light.id} onClick={() => setSelectedLighting(light.id)} className={`p-3 text-center border-2 transition-all ${selectedLighting === light.id ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
                         <div className="text-xs font-bold break-keep">{light.label}</div>
                     </button>
                 ))}
-            </div>
-          </div>
-
-          {/* 3. Mood Reference Image (Optional) */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">4. 무드 레퍼런스 (선택)</h3>
-            <p className="text-[11px] text-gray-500 font-medium -mt-1">레퍼런스의 <b>제품 배치를 거의 그대로 카피</b>하고, 색감·톤도 함께 반영합니다. (제품 자체는 업로드된 원본만 사용)</p>
-            <div onClick={() => document.getElementById('mood-ref-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'moodRef'); }} className="h-40 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
-              {moodReferenceImage ? (
-                <>
-                  <img src={moodReferenceImage} className="w-full h-full object-contain p-2" alt="Mood Reference" />
-                  <button onClick={(e) => { e.stopPropagation(); setMoodReferenceImage(null); }} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
-                </>
-              ) : (
-                <div className="text-center p-4 text-gray-400"><UploadCloud className="w-7 h-7 mx-auto mb-1" /><p className="font-bold text-xs uppercase">무드 레퍼런스 업로드</p><p className="text-[10px] mt-1 text-gray-400">예) 분위기 참고용 화보, 광고컷</p></div>
-              )}
-              <input id="mood-ref-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'moodRef')} />
             </div>
           </div>
 
