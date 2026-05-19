@@ -374,7 +374,7 @@ const pollUntilDone = async ({ pollFn, intervalMs = 5000, timeoutMs = 5 * 60 * 1
 
 // Kick off Veo 2 image-to-video generation. Returns the operation name to poll.
 // If lastFrameDataUrl is provided, Veo bridges from the first frame to that frame.
-const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio = '1:1', durationSeconds = 5 }) => {
+const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio = '1:1', durationSeconds = 4 }) => {
   if (!apiKey) throw new Error('Gemini API Key가 설정되지 않았습니다.');
   if (!imageDataUrl) throw new Error('소스 이미지가 필요합니다.');
   const base64 = imageDataUrl.split(',')[1];
@@ -402,7 +402,7 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
     }
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning?key=${apiKey}`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -413,7 +413,7 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
   try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: { message: raw || 'Invalid JSON' } }; }
   if (!res.ok) throw new Error(`Veo API Error ${res.status}: ${data?.error?.message || raw}`);
   if (!data?.name) throw new Error('Veo 응답에 operation name이 없습니다.');
-  return data.name; // e.g. "models/veo-2.0-generate-001/operations/abc123"
+  return data.name; // e.g. "models/veo-3.1-fast-generate-preview/operations/abc123"
 };
 
 // Poll a Veo operation until completion.
@@ -459,7 +459,7 @@ const veoFetchVideoAsBlobUrl = async ({ apiKey, videoUri }) => {
 };
 
 // One-shot helper that orchestrates start → poll → fetch.
-const generateVeoVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio, durationSeconds = 5, onProgress }) => {
+const generateVeoVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio, durationSeconds = 4, onProgress }) => {
   const operationName = await veoStartImageToVideo({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio, durationSeconds });
   if (onProgress) onProgress({ phase: 'started', operationName });
   const finalOp = await veoPollOperation({
@@ -1689,8 +1689,8 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
     try {
       const compSrc = await compressImage(sourceImages[0], 1024, 0.85);
       const taskDesc = isTwoImage
-        ? `이 두 이미지는 영상의 시작 프레임과 끝 프레임이야. 두 프레임을 자연스럽게 연결하는 5초 영상 모션 프롬프트를 영어로 30단어 이내로 추천해줘.`
-        : `이 이미지는 패션 룩북 / 제품 사진이야. 이 사진을 5초 영상으로 만들 때 어울리는 모션 프롬프트를 영어로 30단어 이내로 추천해줘.`;
+        ? `이 두 이미지는 영상의 시작 프레임과 끝 프레임이야. 두 프레임을 자연스럽게 연결하는 4초 영상 모션 프롬프트를 영어로 30단어 이내로 추천해줘.`
+        : `이 이미지는 패션 룩북 / 제품 사진이야. 이 사진을 4초 영상으로 만들 때 어울리는 모션 프롬프트를 영어로 30단어 이내로 추천해줘.`;
       const parts = [
         { text: `${taskDesc}\n포함할 요소: 자연스러운 움직임, 카메라 워크, cinematic editorial mood. 반드시 영어, 30단어 이내, 한 문단. 다른 설명·prefix 없이 프롬프트만.` },
         { inlineData: { mimeType: 'image/jpeg', data: compSrc.split(',')[1] } }
@@ -1731,7 +1731,7 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
         lastFrameDataUrl: isTwoImage ? sourceImages[1] : undefined,
         prompt: customPrompt,
         aspectRatio,
-        durationSeconds: 5,
+        durationSeconds: 4,
         onProgress: (info) => {
           if (info.phase === 'started') setProgressMsg('영상 생성 중... (0초 경과)');
           else if (info.phase === 'polling') setProgressMsg(`영상 생성 중... (${Math.round(info.elapsedMs / 1000)}초 경과)`);
@@ -1849,7 +1849,7 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
           {/* Cost */}
           <div className="p-3 bg-yellow-50 border border-yellow-200">
             <div className="text-xs font-bold text-black mb-1">💰 예상 비용</div>
-            <div className="text-[11px] text-gray-700">5초 × 720p × 1개 = <b>약 ₩2,400 (~$1.75)</b></div>
+            <div className="text-[11px] text-gray-700">4초 × 720p × 1개 (Veo 3.1 Fast)</div>
             <div className="text-[10px] text-gray-500 mt-1">생성 시간: 약 30초 ~ 2분</div>
           </div>
 
