@@ -1856,8 +1856,8 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
           {/* Cost */}
           <div className="p-3 bg-yellow-50 border border-yellow-200">
             <div className="text-xs font-bold text-black mb-1">💰 예상 비용</div>
-            <div className="text-[11px] text-gray-700">8초 × 720p × 1개 (Veo 3.1 Lite Preview)</div>
-            <div className="text-[10px] text-gray-500 mt-1">Preview 모델 가격 미공개 · 정확한 청구액은 Google AI Studio 빌링 참고</div>
+            <div className="text-[11px] text-gray-700">영상 1개당 (Veo 3.1 Lite) — 720p: <b>$0.05 (~₩70)</b> · 1080p: <b>$0.08 (~₩110)</b></div>
+            <div className="text-[10px] text-gray-500 mt-1">초 단위 X · 영상 출력 1건 단위로 과금 (현재 설정: 720p)</div>
             <div className="text-[10px] text-gray-500">생성 시간: 약 30초 ~ 2분</div>
           </div>
 
@@ -1885,14 +1885,23 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
           )}
         </div>
 
-        <div className="flex-1 p-8 flex items-center justify-center relative">
+        <div className="flex-1 flex items-center justify-center relative bg-black">
           {generatedVideo ? (
-            <div className="w-full h-full flex items-center justify-center cursor-pointer group relative" onClick={() => setShowZoomModal(true)}>
-              <video src={generatedVideo} controls autoPlay loop playsInline className="max-w-full max-h-full shadow-2xl bg-black" />
-              <button onClick={(e) => { e.stopPropagation(); setShowZoomModal(true); }} title="확대" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="w-4 h-4 text-black" /></button>
+            <div className="w-full h-full relative group cursor-pointer" onClick={() => setShowZoomModal(true)}>
+              {/* object-cover + w-full h-full forces the video to fill the panel completely without any margins. Browser auto-handles the crop based on the video's intrinsic AR. */}
+              <video
+                src={generatedVideo}
+                controls
+                autoPlay
+                loop
+                playsInline
+                className="w-full h-full object-cover bg-black"
+                style={{ display: 'block' }}
+              />
+              <button onClick={(e) => { e.stopPropagation(); setShowZoomModal(true); }} title="확대 (여백 없이)" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="w-4 h-4 text-black" /></button>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center text-gray-400">
+            <div className="flex flex-col items-center justify-center text-gray-400 bg-gray-100 w-full h-full">
               <Film className="w-24 h-24 mb-4 opacity-20" />
               <h3 className="text-xl font-bold uppercase mb-2">No Video Generated</h3>
               <p className="text-base font-medium text-center px-6">좌측에서 이미지 1~2장을 업로드하고 옵션 선택 후 생성 버튼을 누르세요.<br/><span className="text-[11px]">다른 탭에서 만든 이미지로 영상을 만들고 싶다면 결과 이미지 위의 🎬 버튼을 누르세요.</span></p>
