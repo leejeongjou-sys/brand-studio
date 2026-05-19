@@ -7,7 +7,8 @@ import {
   Shirt, MessageSquarePlus, Maximize2, UserCheck, Smartphone, Monitor,
   RefreshCcw, Save, Layers, Scissors, PlusCircle, MinusCircle, Highlighter,
   Package, Camera, ChevronRight, Sun,
-  ArrowUp, ArrowDown
+  ArrowUp, ArrowDown,
+  Film
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS ---
@@ -375,18 +376,28 @@ const pollUntilDone = async ({ pollFn, intervalMs = 5000, timeoutMs = 5 * 60 * 1
 };
 
 // Kick off Veo 2 image-to-video generation. Returns the operation name to poll.
-const veoStartImageToVideo = async ({ apiKey, imageDataUrl, prompt, aspectRatio = '1:1', durationSeconds = 5 }) => {
+// If lastFrameDataUrl is provided, Veo bridges from the first frame to that frame.
+const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio = '1:1', durationSeconds = 5 }) => {
   if (!apiKey) throw new Error('Gemini API Key가 설정되지 않았습니다.');
   if (!imageDataUrl) throw new Error('소스 이미지가 필요합니다.');
   const base64 = imageDataUrl.split(',')[1];
   const mimeMatch = imageDataUrl.match(/^data:([^;]+);/);
   const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
 
+  const instance = {
+    prompt: prompt || 'natural subtle motion, the subject breathes and shifts weight gently, camera holds still',
+    image: { bytesBase64Encoded: base64, mimeType }
+  };
+
+  if (lastFrameDataUrl) {
+    const last64 = lastFrameDataUrl.split(',')[1];
+    const lastMimeMatch = lastFrameDataUrl.match(/^data:([^;]+);/);
+    const lastMime = lastMimeMatch ? lastMimeMatch[1] : 'image/jpeg';
+    instance.lastFrame = { bytesBase64Encoded: last64, mimeType: lastMime };
+  }
+
   const body = {
-    instances: [{
-      prompt: prompt || 'natural subtle motion, the model breathes and shifts weight gently, camera holds still',
-      image: { bytesBase64Encoded: base64, mimeType }
-    }],
+    instances: [instance],
     parameters: {
       aspectRatio: mapAspectRatioToVeo(aspectRatio),
       durationSeconds: String(durationSeconds),
@@ -451,8 +462,8 @@ const veoFetchVideoAsBlobUrl = async ({ apiKey, videoUri }) => {
 };
 
 // One-shot helper that orchestrates start → poll → fetch.
-const generateVeoVideo = async ({ apiKey, imageDataUrl, prompt, aspectRatio, durationSeconds = 5, onProgress }) => {
-  const operationName = await veoStartImageToVideo({ apiKey, imageDataUrl, prompt, aspectRatio, durationSeconds });
+const generateVeoVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio, durationSeconds = 5, onProgress }) => {
+  const operationName = await veoStartImageToVideo({ apiKey, imageDataUrl, lastFrameDataUrl, prompt, aspectRatio, durationSeconds });
   if (onProgress) onProgress({ phase: 'started', operationName });
   const finalOp = await veoPollOperation({
     apiKey,
@@ -1560,57 +1571,137 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 };
 
 // ============================================================
-// VideoCreationModal — used by Fitting Room to launch a Veo 2 job
+// VideoStudioGenerator — standalone 영상 탭
+// 1~2장 이미지 입력 → Veo 2로 영상 생성
+// 다른 탭에서 "🎬" 버튼으로 seedImages를 받아 자동 채움
 // ============================================================
-const VideoCreationModal = ({ isOpen, onClose, sourceImage, apiKey, onComplete, showNotification }) => {
+const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSeed }) => {
+  const [sourceImages, setSourceImages] = useState([]); // 최대 2장 (start + end)
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [motionType, setMotionType] = useState('breath');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
+  const [generatedVideo, setGeneratedVideo] = useState(null); // blob URL
+  const [showZoomModal, setShowZoomModal] = useState(false);
 
-  const motionPresets = {
+  // Seed from other tabs (Lookbook / Fitting / Product result viewer "🎬" button)
+  useEffect(() => {
+    if (seedImages && seedImages.length > 0) {
+      setSourceImages(seedImages.slice(0, 2));
+      if (clearSeed) clearSeed();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedImages]);
+
+  const isTwoImage = sourceImages.length >= 2;
+
+  // Motion presets per mode
+  const singleMotionPresets = {
     breath: {
       label: '자연스러운 호흡 (안전)',
-      desc: '모델이 자연스럽게 호흡하고 미세하게 무게중심 이동. 카메라 고정.',
-      prompt: 'The model breathes naturally and gently shifts weight. Hair has subtle natural movement. Fabric drapes softly. The camera remains completely still. Soft ambient lighting, identical to the source frame.'
+      desc: '미세 호흡·시선 이동, 카메라 고정',
+      prompt: 'The subject breathes naturally and gently shifts weight. Hair has subtle natural movement. Fabric drapes softly. The camera remains completely still. Soft ambient lighting, identical to the source frame.'
     },
     pose: {
       label: '포즈 전환',
-      desc: '정면에서 살짝 옆으로 자세 전환, 시선 이동',
-      prompt: 'The model slowly transitions from straight-on to a slight 3/4 angle, turning the head and body gently. Natural micro-expressions, soft gaze shift. Camera remains stable. Lighting and outfit stay identical to the source frame.'
+      desc: '정면에서 살짝 사이드로 자세 전환',
+      prompt: 'The subject slowly transitions from straight-on to a slight 3/4 angle, turning the head and body gently. Natural micro-expressions, soft gaze shift. Camera remains stable. Lighting and outfit stay identical to the source frame.'
     },
     camera: {
       label: '카메라 무빙',
       desc: '느린 줌인 또는 부드러운 패럴랙스',
-      prompt: 'Slow gentle zoom-in toward the model with subtle parallax. The model holds the same pose with minimal natural movement (breathing, small head adjustment). Cinematic editorial fashion-film feel. Lighting and outfit stay identical.'
+      prompt: 'Slow gentle zoom-in toward the subject with subtle parallax. The subject holds the pose with minimal natural movement (breathing, small head adjustment). Cinematic editorial fashion-film feel. Lighting and outfit stay identical.'
+    }
+  };
+  const twoImagePresets = {
+    transition: {
+      label: '두 프레임 자연스럽게 전환',
+      desc: '첫 이미지 → 마지막 이미지로 부드럽게 모션 인터폴레이션',
+      prompt: 'Smooth, cinematic transition from the first frame to the last frame. Natural in-between motion bridges the two key frames — realistic body movement, fluid camera flow, consistent lighting continuity. The subject is the SAME person/object across both frames; the transition is one continuous moment, not a cut. Fashion-film aesthetic.'
+    },
+    motion_blend: {
+      label: '연속 모션 (변화 강조)',
+      desc: '두 프레임의 차이(포즈/표정)를 dynamic하게 보여줌',
+      prompt: 'Render a dynamic continuous motion from the first frame to the last frame. Emphasize the pose / expression difference between the two frames with natural in-between movement. Maintain identity, outfit, and lighting consistency.'
+    }
+  };
+  const motionPresets = isTwoImage ? twoImagePresets : singleMotionPresets;
+
+  // Reset motion type when source count changes
+  useEffect(() => {
+    const validKeys = Object.keys(motionPresets);
+    if (!validKeys.includes(motionType)) {
+      const firstKey = validKeys[0];
+      setMotionType(firstKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTwoImage]);
+
+  // Auto-fill prompt when motion type changes (unless user edited it)
+  useEffect(() => {
+    if (motionPresets[motionType]) setCustomPrompt(motionPresets[motionType].prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [motionType, isTwoImage]);
+
+  const handleImageUpload = async (files, slotIdx) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const r = new FileReader();
+    r.onload = async () => {
+      try {
+        const img = await compressImage(r.result, 1280, 0.9);
+        setSourceImages(prev => {
+          const next = [...prev];
+          while (next.length < slotIdx) next.push(null);
+          next[slotIdx] = img;
+          return next.filter(Boolean);
+        });
+      } catch { /* ignore */ }
+    };
+    r.readAsDataURL(file);
+  };
+
+  const handleMultiUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    const available = 2 - sourceImages.length;
+    if (available <= 0) return showNotification('최대 2장까지 업로드 가능합니다.', 'error');
+    const toProcess = Array.from(files).slice(0, available);
+    for (const file of toProcess) {
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const img = await compressImage(r.result, 1280, 0.9);
+          setSourceImages(prev => prev.length < 2 ? [...prev, img] : prev);
+        } catch { /* ignore */ }
+      };
+      r.readAsDataURL(file);
     }
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      setAspectRatio('1:1');
-      setMotionType('breath');
-      setCustomPrompt(motionPresets.breath.prompt);
-      setProgressMsg('');
-      setIsGenerating(false);
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (motionPresets[motionType]) setCustomPrompt(motionPresets[motionType].prompt);
-  }, [motionType]);
+  const removeImageAt = (idx) => {
+    setSourceImages(prev => prev.filter((_, i) => i !== idx));
+  };
 
   const handleSuggestPrompt = async () => {
-    if (!sourceImage) return;
+    if (sourceImages.length === 0) return showNotification('이미지를 먼저 업로드해주세요.', 'error');
+    const apiKey = settings?.apiKey || DEFAULT_API_KEY;
+    if (!apiKey) return showNotification('Gemini API Key가 설정되지 않았습니다.', 'error');
     setIsSuggesting(true);
     try {
-      const compSrc = await compressImage(sourceImage, 1024, 0.85);
+      const compSrc = await compressImage(sourceImages[0], 1024, 0.85);
+      const taskDesc = isTwoImage
+        ? `이 두 이미지는 영상의 시작 프레임과 끝 프레임이야. 두 프레임을 자연스럽게 연결하는 5초 영상 모션 프롬프트를 영어로 30단어 이내로 추천해줘.`
+        : `이 이미지는 패션 룩북 / 제품 사진이야. 이 사진을 5초 영상으로 만들 때 어울리는 모션 프롬프트를 영어로 30단어 이내로 추천해줘.`;
       const parts = [
-        { text: `이 이미지는 패션 룩북 / 피팅컷이야. 이 사진을 5초짜리 영상으로 만들 때 어울리는 모션 프롬프트를 영어로 30단어 이내로 추천해줘.\n포함할 요소:\n- 모델의 자연스러운 움직임 (호흡·시선·미세 표정)\n- 카메라 워크 (고정 / slow zoom / 패럴랙스 등)\n- 옷의 흐름 (있다면)\n- 룩북 무드 (cinematic editorial)\n\n반드시 영어로, 30단어 이내, 한 문단으로. 다른 설명·prefix 없이 프롬프트만.` },
+        { text: `${taskDesc}\n포함할 요소: 자연스러운 움직임, 카메라 워크, cinematic editorial mood. 반드시 영어, 30단어 이내, 한 문단. 다른 설명·prefix 없이 프롬프트만.` },
         { inlineData: { mimeType: 'image/jpeg', data: compSrc.split(',')[1] } }
       ];
+      if (isTwoImage && sourceImages[1]) {
+        const compLast = await compressImage(sourceImages[1], 1024, 0.85);
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: compLast.split(',')[1] } });
+      }
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKey}`;
       const res = await fetchWithRetry(url, {
         method: 'POST',
@@ -1630,14 +1721,17 @@ const VideoCreationModal = ({ isOpen, onClose, sourceImage, apiKey, onComplete, 
   };
 
   const handleGenerate = async () => {
-    if (!sourceImage) return;
+    if (sourceImages.length === 0) return showNotification('이미지를 먼저 업로드해주세요.', 'error');
+    const apiKey = settings?.apiKey || DEFAULT_API_KEY;
     if (!apiKey) return showNotification('Gemini API Key가 설정되지 않았습니다.', 'error');
     setIsGenerating(true);
+    setGeneratedVideo(null);
     setProgressMsg('영상 작업 시작 중...');
     try {
       const { blobUrl } = await generateVeoVideo({
         apiKey,
-        imageDataUrl: sourceImage,
+        imageDataUrl: sourceImages[0],
+        lastFrameDataUrl: isTwoImage ? sourceImages[1] : undefined,
         prompt: customPrompt,
         aspectRatio,
         durationSeconds: 5,
@@ -1647,8 +1741,7 @@ const VideoCreationModal = ({ isOpen, onClose, sourceImage, apiKey, onComplete, 
           else if (info.phase === 'fetching') setProgressMsg('영상 다운로드 중...');
         }
       });
-      onComplete(blobUrl);
-      onClose();
+      setGeneratedVideo(blobUrl);
       showNotification('영상 생성 완료!');
     } catch (e) {
       showNotification('영상 생성 실패: ' + String(e.message || e), 'error');
@@ -1658,96 +1751,153 @@ const VideoCreationModal = ({ isOpen, onClose, sourceImage, apiKey, onComplete, 
     }
   };
 
-  if (!isOpen || !sourceImage) return null;
-
-  const showsAspectWarning = aspectRatio === '3:4';
+  const handleDownload = () => {
+    if (!generatedVideo) return;
+    const link = document.createElement('a');
+    link.href = generatedVideo;
+    link.download = `VideoStudio_${Date.now()}.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[80] flex items-center justify-center p-4">
-      <div className="bg-white border-2 border-black shadow-2xl max-w-4xl w-full max-h-[90vh] flex animate-fade-in overflow-hidden">
-        {/* Left: preview */}
-        <div className="w-1/2 bg-gray-100 flex items-center justify-center p-4 border-r border-black">
-          <img src={sourceImage} className="max-w-full max-h-full object-contain shadow" alt="Source" />
+    <div className="flex flex-row h-full bg-white">
+      {/* Left: controls */}
+      <div className="w-1/2 border-r border-black bg-gray-50 flex flex-col">
+        <div className="h-16 px-6 border-b border-black flex items-center gap-2 bg-white shrink-0">
+          <Film className="w-5 h-5" />
+          <h2 className="text-lg font-black uppercase tracking-tighter">Video Studio (Veo 2)</h2>
         </div>
 
-        {/* Right: controls */}
-        <div className="w-1/2 flex flex-col">
-          <div className="h-14 px-5 border-b border-black flex items-center justify-between shrink-0">
-            <h3 className="text-lg font-black uppercase tracking-tighter flex items-center gap-2">🎬 영상 만들기 (Veo 2)</h3>
-            <button onClick={onClose} disabled={isGenerating} className="p-1 hover:bg-gray-100 rounded-full disabled:opacity-30"><X className="w-5 h-5" /></button>
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
+          {/* Source Images */}
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">0. 소스 이미지 ({sourceImages.length}/2)</h3>
+            <p className="text-[11px] text-gray-500 font-medium -mt-1">1장: 단순 모션 영상 · <b>2장: 첫 이미지 → 두 번째 이미지로 자연스럽게 전환되는 영상</b></p>
+            <div className="grid grid-cols-2 gap-3" onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleMultiUpload(e.dataTransfer.files); }}>
+              {[0, 1].map(idx => {
+                const img = sourceImages[idx];
+                const label = idx === 0 ? 'START FRAME' : 'END FRAME (선택)';
+                if (img) {
+                  return (
+                    <div key={idx} className="aspect-square border border-black bg-white relative">
+                      <img src={img} className="w-full h-full object-contain p-1" alt={label} />
+                      <button onClick={() => removeImageAt(idx)} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3" /></button>
+                      <span className="absolute bottom-1 left-1 bg-black text-white text-[9px] font-bold px-1.5 py-0.5">{label}</span>
+                    </div>
+                  );
+                }
+                const isNextSlot = idx === sourceImages.length;
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => isNextSlot && document.getElementById('video-upload').click()}
+                    className={`aspect-square border-2 border-dashed bg-white flex flex-col items-center justify-center transition-colors ${isNextSlot ? 'border-gray-400 hover:border-black cursor-pointer' : 'border-gray-200 opacity-50 cursor-not-allowed'}`}
+                  >
+                    <UploadCloud className="w-6 h-6 text-gray-400 mb-1" />
+                    <span className={`text-[10px] font-bold ${isNextSlot ? 'text-gray-700' : 'text-gray-300'}`}>{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <input id="video-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => { handleMultiUpload(e.target.files); e.target.value = ''; }} />
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5 custom-scrollbar">
-            {/* Aspect Ratio */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-800 mb-2">종횡비</label>
-              <div className="flex gap-2">
-                {['1:1', '3:4', '9:16'].map(r => (
-                  <button key={r} onClick={() => setAspectRatio(r)} disabled={isGenerating} className={`flex-1 py-2.5 text-sm font-bold border-2 transition-colors ${aspectRatio === r ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'} disabled:opacity-40`}>{r}</button>
-                ))}
-              </div>
-              {showsAspectWarning && (
-                <p className="text-[10px] text-gray-500 mt-1 font-medium">⚠ Veo 2가 3:4를 직접 지원하지 않아 <b>9:16</b>으로 생성됩니다.</p>
-              )}
+          {/* Aspect Ratio */}
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">1. 종횡비</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {['1:1', '9:16'].map(r => (
+                <button key={r} onClick={() => setAspectRatio(r)} disabled={isGenerating} className={`py-3 text-sm font-bold border-2 transition-colors ${aspectRatio === r ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'} disabled:opacity-40`}>{r}</button>
+              ))}
             </div>
+          </div>
 
-            {/* Motion type */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-800 mb-2">모션 타입</label>
-              <div className="flex flex-col gap-1.5">
-                {Object.entries(motionPresets).map(([id, preset]) => (
-                  <button key={id} onClick={() => setMotionType(id)} disabled={isGenerating} className={`p-3 text-left border-2 transition-colors ${motionType === id ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'} disabled:opacity-40`}>
-                    <div className="text-xs font-black uppercase">{preset.label}</div>
-                    <div className={`text-[10px] mt-0.5 ${motionType === id ? 'text-gray-300' : 'text-gray-500'}`}>{preset.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Prompt */}
-            <div>
-              <div className="flex justify-between items-end mb-2">
-                <label className="text-xs font-bold uppercase text-gray-800">프롬프트 (편집 가능)</label>
-                <button onClick={handleSuggestPrompt} disabled={isSuggesting || isGenerating} className="text-[11px] font-bold uppercase bg-white text-black px-3 py-1.5 border border-black hover:bg-gray-100 flex items-center gap-1 disabled:opacity-40">
-                  {isSuggesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
-                  AI 추천
+          {/* Motion type */}
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">2. 모션 타입 {isTwoImage && <span className="text-[10px] font-medium normal-case text-gray-500">(2-frame 모드)</span>}</h3>
+            <div className="flex flex-col gap-1.5">
+              {Object.entries(motionPresets).map(([id, preset]) => (
+                <button key={id} onClick={() => setMotionType(id)} disabled={isGenerating} className={`p-3 text-left border-2 transition-colors ${motionType === id ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'} disabled:opacity-40`}>
+                  <div className="text-xs font-black uppercase">{preset.label}</div>
+                  <div className={`text-[10px] mt-0.5 ${motionType === id ? 'text-gray-300' : 'text-gray-500'}`}>{preset.desc}</div>
                 </button>
-              </div>
-              <textarea
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                disabled={isGenerating}
-                className="w-full h-24 p-3 border border-black text-xs focus:outline-none bg-gray-50 font-medium leading-relaxed disabled:opacity-50"
-                placeholder="모델 움직임과 카메라 워크를 영어로 짧게 입력"
-              />
-            </div>
-
-            {/* Cost */}
-            <div className="p-3 bg-yellow-50 border border-yellow-200">
-              <div className="text-xs font-bold text-black mb-1">💰 예상 비용</div>
-              <div className="text-[11px] text-gray-700">5초 × 720p × 1개 = <b>약 ₩2,400 (~$1.75)</b></div>
-              <div className="text-[10px] text-gray-500 mt-1">생성 시간: 약 30초 ~ 2분</div>
+              ))}
             </div>
           </div>
 
-          {/* Footer / Generate */}
-          <div className="p-4 border-t border-black bg-white shrink-0">
-            {isGenerating && progressMsg && (
-              <div className="mb-3 text-[11px] text-black font-bold flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> {progressMsg}
-              </div>
-            )}
-            <button onClick={handleGenerate} disabled={isGenerating || !customPrompt.trim()} className="w-full bg-black text-white py-4 font-bold uppercase text-sm hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2">
-              {isGenerating ? <><Loader2 className="w-4 h-4 animate-spin" /> 생성 중...</> : <>🎬 영상 생성하기</>}
-            </button>
+          {/* Prompt */}
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between items-end border-b-2 border-black pb-1">
+              <h3 className="text-sm font-bold uppercase text-black">3. 프롬프트 (편집 가능)</h3>
+              <button onClick={handleSuggestPrompt} disabled={isSuggesting || isGenerating || sourceImages.length === 0} className="text-[11px] font-bold uppercase bg-white text-black px-3 py-1 border border-black hover:bg-gray-100 flex items-center gap-1 disabled:opacity-40">
+                {isSuggesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                AI 추천
+              </button>
+            </div>
+            <textarea
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              disabled={isGenerating}
+              className="w-full h-28 p-3 border border-black text-xs focus:outline-none bg-white font-medium leading-relaxed disabled:opacity-50"
+              placeholder="모델 움직임과 카메라 워크를 영어로 짧게 입력"
+            />
           </div>
+
+          {/* Cost */}
+          <div className="p-3 bg-yellow-50 border border-yellow-200">
+            <div className="text-xs font-bold text-black mb-1">💰 예상 비용</div>
+            <div className="text-[11px] text-gray-700">5초 × 720p × 1개 = <b>약 ₩2,400 (~$1.75)</b></div>
+            <div className="text-[10px] text-gray-500 mt-1">생성 시간: 약 30초 ~ 2분</div>
+          </div>
+
+          <div className="pb-10"></div>
+        </div>
+
+        <div className="p-5 border-t border-black bg-white sticky bottom-0">
+          {isGenerating && progressMsg && (
+            <div className="mb-3 text-[11px] text-black font-bold flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> {progressMsg}
+            </div>
+          )}
+          <button onClick={handleGenerate} disabled={isGenerating || sourceImages.length === 0 || !customPrompt.trim()} className="w-full bg-black text-white py-4 font-bold uppercase text-sm hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2">
+            {isGenerating ? <><Loader2 className="w-4 h-4 animate-spin" /> 생성 중...</> : <>🎬 {isTwoImage ? '2-프레임 영상 생성' : '영상 생성하기'}</>}
+          </button>
         </div>
       </div>
+
+      {/* Right: result viewer */}
+      <div className="flex-1 bg-gray-100 flex flex-col">
+        <div className="h-16 px-6 border-b border-black bg-white shrink-0 flex justify-between items-center">
+          <h2 className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><Film className="w-5 h-5" /> Output</h2>
+          {generatedVideo && (
+            <button onClick={handleDownload} className="bg-black text-white px-4 py-2 text-sm font-bold uppercase hover:bg-gray-800 flex items-center gap-2"><Download className="w-4 h-4" /> 다운로드 (mp4)</button>
+          )}
+        </div>
+
+        <div className="flex-1 p-8 flex items-center justify-center relative">
+          {generatedVideo ? (
+            <div className="w-full h-full flex items-center justify-center cursor-pointer group relative" onClick={() => setShowZoomModal(true)}>
+              <video src={generatedVideo} controls autoPlay loop playsInline className="max-w-full max-h-full shadow-2xl bg-black" />
+              <button onClick={(e) => { e.stopPropagation(); setShowZoomModal(true); }} title="확대" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="w-4 h-4 text-black" /></button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-gray-400">
+              <Film className="w-24 h-24 mb-4 opacity-20" />
+              <h3 className="text-xl font-bold uppercase mb-2">No Video Generated</h3>
+              <p className="text-base font-medium text-center px-6">좌측에서 이미지 1~2장을 업로드하고 옵션 선택 후 생성 버튼을 누르세요.<br/><span className="text-[11px]">다른 탭에서 만든 이미지로 영상을 만들고 싶다면 결과 이미지 위의 🎬 버튼을 누르세요.</span></p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <ImageViewerModal isOpen={showZoomModal} onClose={() => setShowZoomModal(false)} imageSrc={generatedVideo} mediaType="video" />
     </div>
   );
 };
 
-const FittingRoomGenerator = ({ settings, showNotification }) => {
+const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
   const [faceImages, setFaceImages] = useState([]); // 최대 3장 (다각도)
   const [bodyImage, setBodyImage] = useState(null);
   const [items, setItems] = useState([
@@ -1763,11 +1913,6 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
   const [customBgImage, setCustomBgImage] = useState(null);
   const [generatedFits, setGeneratedFits] = useState([]);
   const [lastGenMode, setLastGenMode] = useState(null); // 'fullbody' | 'focus' | null
-  // Per-image video state: { [imgIndex]: videoBlobUrl }
-  const [videosByIndex, setVideosByIndex] = useState({});
-  const [videoModalIdx, setVideoModalIdx] = useState(null);
-  // What's currently shown in the zoom modal — 'image' or 'video'
-  const [zoomKind, setZoomKind] = useState('image');
   const [currentFitIndex, setCurrentFitIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showZoomModal, setShowZoomModal] = useState(false);
@@ -2339,12 +2484,11 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
                  </span>
               </div>
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
-                <img src={generatedFits[currentFitIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => { setZoomKind('image'); setShowZoomModal(true); }} alt="Generated Fit" />
+                <img src={generatedFits[currentFitIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated Fit" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
                 <button onClick={(e) => { e.stopPropagation(); handleDownload(); }} title="이미지 다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-4 h-4 text-black" /></button>
-                <button onClick={(e) => { e.stopPropagation(); setVideoModalIdx(currentFitIndex); }} title="이 이미지로 영상 만들기 (Veo 2)" className="absolute top-3 right-14 z-20 bg-black/95 hover:bg-black border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-bold">🎬</button>
-                {videosByIndex[currentFitIndex] && (
-                  <button onClick={(e) => { e.stopPropagation(); setZoomKind('video'); setShowZoomModal(true); }} title="영상 재생" className="absolute bottom-3 left-3 z-20 bg-white/95 hover:bg-white border border-black px-3 py-1.5 rounded-full shadow-md flex items-center gap-1 text-[11px] font-bold text-black"><span className="text-[10px]">▶</span> 영상 보기</button>
+                {sendToVideo && (
+                  <button onClick={(e) => { e.stopPropagation(); sendToVideo([generatedFits[currentFitIndex]]); }} title="이 이미지로 영상 만들기" className="absolute top-3 right-14 z-20 bg-black/95 hover:bg-black border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-bold">🎬</button>
                 )}
 
                 {generatedFits.length > 1 && (
@@ -2375,27 +2519,12 @@ const FittingRoomGenerator = ({ settings, showNotification }) => {
           )}
         </div>
       </div>
-      <ImageViewerModal
-        isOpen={showZoomModal}
-        onClose={() => setShowZoomModal(false)}
-        imageSrc={zoomKind === 'video' ? videosByIndex[currentFitIndex] : generatedFits[currentFitIndex]}
-        mediaType={zoomKind === 'video' ? 'video' : 'image'}
-      />
-      <VideoCreationModal
-        isOpen={videoModalIdx !== null}
-        onClose={() => setVideoModalIdx(null)}
-        sourceImage={videoModalIdx !== null ? generatedFits[videoModalIdx] : null}
-        apiKey={settings.apiKey || DEFAULT_API_KEY}
-        showNotification={showNotification}
-        onComplete={(blobUrl) => {
-          setVideosByIndex(prev => ({ ...prev, [videoModalIdx]: blobUrl }));
-        }}
-      />
+      <ImageViewerModal isOpen={showZoomModal} onClose={() => setShowZoomModal(false)} imageSrc={generatedFits[currentFitIndex]} />
     </div>
   );
 };
 
-const ProductStudioGenerator = ({ settings, showNotification }) => {
+const ProductStudioGenerator = ({ settings, showNotification, sendToVideo }) => {
   const [productImages, setProductImages] = useState([]); // 최대 6장
   const [productDetailImages, setProductDetailImages] = useState([]); // 디테일컷 최대 3장 (라벨·원단 클로즈업)
   const [customBgImage, setCustomBgImage] = useState(null);
@@ -3047,6 +3176,9 @@ ${productRule}${detailRule}
                         <Maximize2 className="w-12 h-12 text-black/50 drop-shadow-md" />
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-5 h-5 text-black" /></button>
+                    {sendToVideo && (
+                      <button onClick={(e) => { e.stopPropagation(); sendToVideo([generatedImage]); }} title="이 이미지로 영상 만들기" className="absolute top-3 right-16 z-20 bg-black/95 hover:bg-black border border-black p-2.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-bold">🎬</button>
+                    )}
 
                     {generatedImages.length > 1 && (
                       <>
@@ -3200,6 +3332,7 @@ const Sidebar = ({ currentView, onNavigate, onExport, onImport, isProcessing }) 
         <button onClick={() => onNavigate('lookbook')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'lookbook' || currentView === 'generator' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><BookOpen className={currentView === 'lookbook' || currentView === 'generator' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">LOOKBOOK</span></button>
         <button onClick={() => onNavigate('fitting')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'fitting' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><Layers className={currentView === 'fitting' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">FITTING ROOM</span></button>
         <button onClick={() => onNavigate('product_studio')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'product_studio' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><Package className={currentView === 'product_studio' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">PRODUCT SHOT</span></button>
+        <button onClick={() => onNavigate('video')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'video' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><Film className={currentView === 'video' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">VIDEO STUDIO</span></button>
       </div>
       <div className="p-4 border-t border-black shrink-0 bg-gray-50">
         <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Database className="w-3 h-3" /> 데이터 관리</h4>
@@ -3228,6 +3361,13 @@ export default function App() {
 
   const [modals, setModals] = useState({ uploadRef: false, delete: false, settings: false });
   const [uploadSettings, setUploadSettings] = useState({ brand: 'EZ' });
+  // Seed images passed from any other generator's "🎬" button to the Video Studio
+  const [videoSeedImages, setVideoSeedImages] = useState([]);
+  const sendToVideo = (images) => {
+    setVideoSeedImages(images || []);
+    setCurrentView('video');
+  };
+  const clearVideoSeed = () => setVideoSeedImages([]);
 
   useEffect(() => {
     if (DEFAULT_API_KEY && !settings.apiKey) {
@@ -3329,7 +3469,7 @@ export default function App() {
               <button onClick={() => setCurrentView('lookbook')} className="flex items-center gap-2 hover:opacity-70"><ChevronLeft className="w-5 h-5" /> <span className="hidden sm:inline font-bold uppercase">레퍼런스 목록으로 돌아가기</span></button>
             ) : (
               <div className="font-extrabold text-lg uppercase flex items-center gap-2">
-                {currentView === 'fitting' ? 'FITTING ROOM' : currentView === 'product_studio' ? 'PRODUCT STUDIO' : 'LOOKBOOK STUDIO'}
+                {currentView === 'fitting' ? 'FITTING ROOM' : currentView === 'product_studio' ? 'PRODUCT STUDIO' : currentView === 'video' ? 'VIDEO STUDIO' : 'LOOKBOOK STUDIO'}
               </div>
             )}
           </div>
@@ -3367,11 +3507,15 @@ export default function App() {
           )}
 
            {currentView === 'fitting' && (
-            <FittingRoomGenerator settings={settings} showNotification={showNotification} />
+            <FittingRoomGenerator settings={settings} showNotification={showNotification} sendToVideo={sendToVideo} />
           )}
 
           {currentView === 'product_studio' && (
-            <ProductStudioGenerator settings={settings} showNotification={showNotification} />
+            <ProductStudioGenerator settings={settings} showNotification={showNotification} sendToVideo={sendToVideo} />
+          )}
+
+          {currentView === 'video' && (
+            <VideoStudioGenerator settings={settings} showNotification={showNotification} seedImages={videoSeedImages} clearSeed={clearVideoSeed} />
           )}
         </div>
         {notification && (
