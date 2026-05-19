@@ -1856,8 +1856,9 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
           {/* Cost */}
           <div className="p-3 bg-yellow-50 border border-yellow-200">
             <div className="text-xs font-bold text-black mb-1">💰 예상 비용</div>
-            <div className="text-[11px] text-gray-700">영상 1개당 (Veo 3.1 Lite) — 720p: <b>$0.05 (~₩70)</b> · 1080p: <b>$0.08 (~₩110)</b></div>
-            <div className="text-[10px] text-gray-500 mt-1">초 단위 X · 영상 출력 1건 단위로 과금 (현재 설정: 720p)</div>
+            <div className="text-[11px] text-gray-700">Veo 3.1 Lite — 720p: <b>$0.05/초</b> · 1080p: <b>$0.08/초</b></div>
+            <div className="text-[10px] text-gray-700 mt-1">현재 8초 × 720p × 1개 ≈ <b>$0.40 (~₩560)</b></div>
+            <div className="text-[10px] text-gray-500 mt-1">정확한 청구액은 Google AI Studio 빌링 참고</div>
             <div className="text-[10px] text-gray-500">생성 시간: 약 30초 ~ 2분</div>
           </div>
 
