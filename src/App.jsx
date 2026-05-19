@@ -906,9 +906,43 @@ const LookbookDashboardGrid = ({ references, selectedBrand, onSelectReference, o
 
 const LookbookGenerator = ({ reference, references = [], onBack, settings, showNotification }) => {
   const [currentReference, setCurrentReference] = useState(reference);
-  const [targetImage, setTargetImage] = useState(null);
-  const [productDetailImages, setProductDetailImages] = useState([]); // 최대 3장 제품 디테일
-  const [faceImages, setFaceImages] = useState([]); // 다중 얼굴 이미지 지원
+  // Multi-model state: each model has its own outfit (targetImage) + face references + detail cuts.
+  // When models.length === 1 -> single-model legacy behavior. When >= 2 -> campaign group shot.
+  const [models, setModels] = useState([
+    { id: 1, name: 'Model A', targetImage: null, faceImages: [], productDetailImages: [] }
+  ]);
+  const [activeModelIdx, setActiveModelIdx] = useState(0);
+  const activeModel = models[activeModelIdx] || models[0];
+  // Convenience accessors that read from the active model (so the existing UI bindings stay terse)
+  const targetImage = activeModel?.targetImage || null;
+  const faceImages = activeModel?.faceImages || [];
+  const productDetailImages = activeModel?.productDetailImages || [];
+
+  const updateActiveModel = (updates) => {
+    setModels(prev => prev.map((m, i) => i === activeModelIdx ? { ...m, ...updates } : m));
+  };
+  const updateActiveModelFn = (updaterFn) => {
+    setModels(prev => prev.map((m, i) => i === activeModelIdx ? updaterFn(m) : m));
+  };
+  const addModel = () => {
+    setModels(prev => {
+      if (prev.length >= 3) return prev;
+      const nextLetter = String.fromCharCode(65 + prev.length); // 'A','B','C'
+      const nextId = Math.max(...prev.map(m => m.id)) + 1;
+      const newModel = { id: nextId, name: `Model ${nextLetter}`, targetImage: null, faceImages: [], productDetailImages: [] };
+      setActiveModelIdx(prev.length); // jump to the newly added model
+      return [...prev, newModel];
+    });
+  };
+  const removeModelAt = (idx) => {
+    setModels(prev => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((_, i) => i !== idx).map((m, i) => ({ ...m, name: `Model ${String.fromCharCode(65 + i)}` }));
+      if (activeModelIdx >= next.length) setActiveModelIdx(next.length - 1);
+      else if (idx < activeModelIdx) setActiveModelIdx(activeModelIdx - 1);
+      return next;
+    });
+  };
   const [generatedImages, setGeneratedImages] = useState([]);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [lastGenMode, setLastGenMode] = useState(null); // 'fullbody' | 'focus' | null
@@ -944,25 +978,29 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       { id: 'elizaveta_porodina', name: 'Elizaveta Porodina', desc: '회화적 사진', style: 'Shot by Elizaveta Porodina, experimental lighting, Photo in painting style,ensure the face remains completely sharp and undistorted' }
   ];
 
+  // All upload handlers route to the active model.
   const handleTargetUpload = async (file) => {
     if (!file) return;
     const r = new FileReader();
-    r.onload = async () => { try { const img = await compressImage(r.result, 1024, 0.8); setTargetImage(img); } catch { /* ignore */ } };
+    r.onload = async () => {
+      try {
+        const img = await compressImage(r.result, 1024, 0.8);
+        updateActiveModel({ targetImage: img });
+      } catch { /* ignore */ }
+    };
     r.readAsDataURL(file);
   };
 
   const handleDetailUpload = async (files) => {
     if (!files || files.length === 0) return;
-    const newFiles = Array.from(files);
-    const availableSlots = 3 - productDetailImages.length;
-    const filesToProcess = newFiles.slice(0, availableSlots);
-
+    const availableSlots = 3 - (activeModel?.productDetailImages?.length || 0);
+    const filesToProcess = Array.from(files).slice(0, availableSlots);
     for (const file of filesToProcess) {
       const r = new FileReader();
       r.onload = async () => {
         try {
           const img = await compressImage(r.result, 1024, 0.8);
-          setProductDetailImages(prev => [...prev, img]);
+          updateActiveModelFn(m => ({ ...m, productDetailImages: [...(m.productDetailImages || []), img] }));
         } catch { /* ignore */ }
       };
       r.readAsDataURL(file);
@@ -972,14 +1010,14 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   const handleFaceUpload = async (files) => {
     if (!files || files.length === 0) return;
     Array.from(files).forEach(file => {
-        const r = new FileReader();
-        r.onload = async () => {
-            try {
-                const img = await compressImage(r.result, 1024, 0.8);
-                setFaceImages(prev => [...prev, img]);
-            } catch { /* ignore */ }
-        };
-        r.readAsDataURL(file);
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const img = await compressImage(r.result, 1024, 0.8);
+          updateActiveModelFn(m => ({ ...m, faceImages: [...(m.faceImages || []), img] }));
+        } catch { /* ignore */ }
+      };
+      r.readAsDataURL(file);
     });
   };
 
@@ -1091,49 +1129,117 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
   const handleGenerate = async (mode = 'fullbody') => {
     // mode: 'fullbody' (전신 2장) | 'focus' (포커스 2장 — targetFocus에 따라 상/하/신발)
-    if (!targetImage) return showNotification("적용할 대상(제품/모델 전신) 이미지를 업로드해주세요.", "error");
+    // Multi-model campaign mode: when models.length > 1, focus mode is disabled and forced to fullbody group shot.
+    const isMulti = models.length > 1;
+    const effMode = isMulti ? 'fullbody' : mode;
+
+    // Validate each model: must have a target outfit
+    for (let i = 0; i < models.length; i++) {
+      const m = models[i];
+      if (!m.targetImage) return showNotification(`${m.name}의 의상/전신 이미지를 업로드해주세요.`, 'error');
+    }
     if (!prompt) return showNotification("프롬프트를 먼저 입력하거나 생성해주세요.", "error");
 
     setIsGenerating(true);
     setGeneratedImages([]);
     setCurrentImgIndex(0);
-    setLastGenMode(mode);
+    setLastGenMode(effMode);
     try {
-      const compTarget = await compressImage(targetImage, 1024, 0.8);
+      // Compress per-model assets in one batch
+      const compModels = await Promise.all(models.map(async (m) => ({
+        name: m.name,
+        compTarget: await compressImage(m.targetImage, 1024, 0.8),
+        compFaces: await Promise.all((m.faceImages || []).map(f => compressImage(f, 1280, 0.95))),
+        compDetails: await Promise.all((m.productDetailImages || []).map(d => compressImage(d, 1024, 0.8)))
+      })));
+      // Legacy single-model vars (still used by single-model prompt path)
+      const compTarget = compModels[0].compTarget;
       const compRef = await compressImage(currentReference.image, 1024, 0.8);
 
-      let inputImagesText = `
-    [IMAGE INPUTS RECOGNITION]
-    Image 1 (Target Subject): Source for TARGET BODY & EXACT CLOTHES.
-    Image 2 (Reference Style): Source for ENVIRONMENT, LIGHTING & MOOD.`;
+      // Build per-model "input image" indexing for the prompt.
+      // Order: for each model: outfit + faces + details, then Style Reference at the very end.
+      const modelBlocks = [];
+      let imgIdx = 1;
+      compModels.forEach((cm, mIdx) => {
+        const outfitIdx = imgIdx; imgIdx++;
+        const faceStart = imgIdx; imgIdx += cm.compFaces.length;
+        const detailStart = imgIdx; imgIdx += cm.compDetails.length;
+        modelBlocks.push({
+          name: cm.name,
+          outfitIdx,
+          faceRange: cm.compFaces.length > 0 ? `${faceStart}${cm.compFaces.length > 1 ? `~${faceStart + cm.compFaces.length - 1}` : ''}` : null,
+          detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null,
+          faceCount: cm.compFaces.length,
+          detailCount: cm.compDetails.length
+        });
+      });
+      const refImgIdx = imgIdx;
 
-      let clothesRuleText = `
+      let inputImagesText;
+      let clothesRuleText;
+      if (isMulti) {
+        inputImagesText = `\n    [IMAGE INPUTS RECOGNITION — MULTI-MODEL CAMPAIGN]\n`;
+        modelBlocks.forEach(b => {
+          inputImagesText += `    ${b.name}:\n      Image ${b.outfitIdx} = ${b.name} OUTFIT (clothing + body silhouette)\n`;
+          if (b.faceRange) inputImagesText += `      Image ${b.faceRange} = ${b.name} FACE references\n`;
+          if (b.detailRange) inputImagesText += `      Image ${b.detailRange} = ${b.name} fabric detail close-ups\n`;
+        });
+        inputImagesText += `    Image ${refImgIdx} = REFERENCE STYLE (environment, lighting, mood)`;
+
+        clothesRuleText = `\n    [RULE 1: STRICT PER-MODEL OUTFIT + IDENTITY LOCK]\n`;
+        modelBlocks.forEach((b, i) => {
+          clothesRuleText += `    Person ${i + 1} (${b.name}): wears ONLY the outfit from Image ${b.outfitIdx}${b.faceRange ? `, has the face from Image ${b.faceRange}` : ''}.\n`;
+        });
+        clothesRuleText += `    PROHIBITED — NEVER swap outfits between people, NEVER mix faces, NEVER bring the outfit/person from the Reference Style (Image ${refImgIdx}) into the scene. The reference is ONLY for environment/lighting/mood.`;
+      } else {
+        // Single-model legacy paths
+        const b = modelBlocks[0];
+        inputImagesText = `
+    [IMAGE INPUTS RECOGNITION]
+    Image ${b.outfitIdx} (Target Subject): Source for TARGET BODY & EXACT CLOTHES.
+    Image ${refImgIdx} (Reference Style): Source for ENVIRONMENT, LIGHTING & MOOD.`;
+        clothesRuleText = `
     [RULE 1: TARGET CLOTHING & BODY (ABSOLUTE LOCK)]
-    - SOURCE: Image 1 (Target Subject)
-    - MANDATORY: You MUST dress the subject in the exact outfit shown in Image 1. Copy the fabric, fit, styling, and silhouette perfectly.
-    - PROHIBITED: NEVER use the clothing from Image 2. The outfit in Image 2 is strictly forbidden and MUST NOT appear in the final image.`;
+    - SOURCE: Image ${b.outfitIdx} (Target Subject)
+    - MANDATORY: You MUST dress the subject in the exact outfit shown in Image ${b.outfitIdx}. Copy the fabric, fit, styling, and silhouette perfectly.
+    - PROHIBITED: NEVER use the clothing from Image ${refImgIdx}. The outfit in Image ${refImgIdx} is strictly forbidden and MUST NOT appear in the final image.`;
+      }
 
       let styleRuleText = `
     [RULE 2: STYLE & ENVIRONMENT TRANSFER (ABSOLUTE SCENE LOCK)]
-    - SOURCE: Image 2 (Reference Style)
-    - MANDATORY: Change the background, lighting, and color grading to match Image 2 perfectly. Extract the atmosphere and lighting.
-    - ENVIRONMENTAL LOCK: The background scene, lighting direction, shadows, and overall atmosphere MUST be perfectly locked and identical across all generated images. Do not alter the environment.
-    - PROHIBITED: Do not bring the person or outfit from Image 2 into the new image. Ignore ALL text, typography, logos, or collages from Image 2.`;
+    - SOURCE: Image ${refImgIdx} (Reference Style)
+    - MANDATORY: Change the background, lighting, and color grading to match Image ${refImgIdx} perfectly. Extract the atmosphere and lighting.
+    - ENVIRONMENTAL LOCK: The background scene, lighting direction, shadows, and overall atmosphere MUST be perfectly locked and identical across both generated images.
+    - PROHIBITED: Do not bring the person or outfit from Image ${refImgIdx} into the new image. Ignore ALL text, typography, logos, or collages from Image ${refImgIdx}.`;
 
-      let faceRuleText = ``;
-      let currentImgIdx = 3;
+      // Build face / detail / group rules using the pre-computed model blocks
+      let faceRuleText = '';
+      if (isMulti) {
+        faceRuleText = `\n    [RULE 3: PER-PERSON IDENTITY LOCK — #1 ABSOLUTE PRIORITY]\n`;
+        modelBlocks.forEach((b, i) => {
+          if (b.faceRange) {
+            faceRuleText += `    Person ${i + 1} (${b.name}): identity locked to Image ${b.faceRange}. Match eye shape / nose / lips / jawline / skin tone / hairline / freckles & moles verbatim. NO new face, NO averaging, NO mixing with other people.\n`;
+          } else {
+            faceRuleText += `    Person ${i + 1} (${b.name}): no face reference uploaded — preserve whatever face is visible in Image ${b.outfitIdx} (the outfit image) and keep that identity locked across both outputs.\n`;
+          }
+        });
+        faceRuleText += `    CRITICAL: NEVER mix faces between persons. Person 1 and Person 2 must look like DIFFERENT, distinct individuals. Each person's face stays consistent across both generated images.\n`;
 
-      if (productDetailImages.length > 0) {
-          inputImagesText += `\n    Image ${currentImgIdx} to ${currentImgIdx + productDetailImages.length - 1} (Detail Images): Source for CLOTHING MICRO-TEXTURE.`;
-          clothesRuleText += `\n    - TEXTURE LOCK: Use these detail images to perfectly replicate the fabric weave and stitching of the outfit.`;
-          currentImgIdx += productDetailImages.length;
-      }
+        // Detail rules per model
+        modelBlocks.forEach((b, i) => {
+          if (b.detailRange) {
+            faceRuleText += `    ${b.name} TEXTURE LOCK: use Image ${b.detailRange} to perfectly replicate the fabric weave / stitching of Image ${b.outfitIdx}.\n`;
+          }
+        });
 
-      if (faceImages.length > 0) {
-          inputImagesText += `\n    Image ${currentImgIdx}+ (Face Detail Images): Source for TARGET FACE (Facial features).`;
+        // Group composition rule
+        faceRuleText += `\n    [RULE 4: GROUP COMPOSITION — ${models.length}-PERSON CAMPAIGN SHOT]\n    All ${models.length} people appear together IN THE SAME FRAME, in the SAME location, lit by the SAME light setup. Natural editorial campaign composition (standing together, slightly turned toward camera, with comfortable spacing). Every person is fully visible — no one cropped, no one occluded behind another. Each outfit is clearly readable. The 2 generated images share the same group composition / lighting / location; only pose and micro-expression differ between the two.`;
+      } else {
+        const b = modelBlocks[0];
+        if (b.faceRange) {
           faceRuleText = `
     [RULE 3: TARGET FACE LOCK — #1 ABSOLUTE NON-NEGOTIABLE PRIORITY]
-    - SOURCE OF TRUTH: Image ${currentImgIdx}+ (Face Detail Images). These face images are the SINGLE SOURCE OF TRUTH for the model's identity and override every other input for facial features.
+    - SOURCE OF TRUTH: Image ${b.faceRange} (Face Detail Images). These face images are the SINGLE SOURCE OF TRUTH for the model's identity and override every other input for facial features.
     - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame:
       * Eye shape, eye spacing (canthal tilt), iris color and pattern, eyelid fold structure
       * Nose bridge length/width, nostril shape, nose tip
@@ -1144,22 +1250,16 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       * Hairline, hair color, hair texture, parting direction, exact hairstyle volume
     - INTERPOLATION PROHIBITED: Do NOT "average", "beautify", "smooth", "westernize/easternize", or stylize the face. The model's micro-asymmetries and imperfections MUST be preserved verbatim — they are part of the identity.
     - NO NEW FACE: Generating a different person, a different ethnicity, or a different age is a hard failure.
-    - CONSISTENCY ACROSS VARIATIONS: All 4 generated images MUST show the SAME EXACT PERSON. Any drift between variations is a hard failure.`;
-      } else {
+    - CONSISTENCY ACROSS VARIATIONS: Both generated images MUST show the SAME EXACT PERSON.`;
+        } else {
           faceRuleText = `
     [RULE 3: TARGET FACE LOCK — #1 ABSOLUTE NON-NEGOTIABLE PRIORITY]
-    - SOURCE OF TRUTH: Image 1 (Target Subject). The face shown in Image 1 is the SINGLE SOURCE OF TRUTH for the model's identity.
-    - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame:
-      * Eye shape, eye spacing, iris pattern, eyelid fold
-      * Nose bridge, nostril shape, nose tip
-      * Lip shape, philtrum, mouth corners
-      * Jawline, chin, cheekbones, ears
-      * Eyebrow shape and density
-      * Skin tone (exact hue/value), freckles/moles/scars/birthmarks at their exact positions
-      * Hairline, hair color, hair texture, parting, exact hairstyle volume
-    - INTERPOLATION PROHIBITED: Do NOT "average", "beautify", "smooth", or stylize the face. Preserve micro-asymmetries verbatim.
+    - SOURCE OF TRUTH: Image ${b.outfitIdx} (Target Subject). The face shown there is the SINGLE SOURCE OF TRUTH for the model's identity.
+    - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame.
     - NO NEW FACE: Generating a different person, ethnicity, or age is a hard failure.
-    - CONSISTENCY ACROSS VARIATIONS: All 4 generated images MUST show the SAME EXACT PERSON.`;
+    - CONSISTENCY ACROSS VARIATIONS: Both generated images MUST show the SAME EXACT PERSON.`;
+        }
+        if (b.detailRange) clothesRuleText += `\n    - TEXTURE LOCK: Use Image ${b.detailRange} (Detail Images) to perfectly replicate the fabric weave and stitching of the outfit.`;
       }
 
       let photoStyleDesc = "";
@@ -1220,30 +1320,34 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     ${photoStyleDesc}
 
     ${HIGH_END_STYLE_PROMPT}
-        ` },
-        { inlineData: { mimeType: "image/jpeg", data: compTarget.split(',')[1] } }, // Target Body First
-        { inlineData: { mimeType: "image/jpeg", data: compRef.split(',')[1] } }     // Reference Style Second
+        ` }
       ];
 
-      for (const detailImg of productDetailImages) {
-          const compDetail = await compressImage(detailImg, 1024, 0.8);
-          parts.push({ inlineData: { mimeType: "image/jpeg", data: compDetail.split(',')[1] } });
+      // Add images in the exact order documented in inputImagesText:
+      // For each model: outfit -> faces -> details. Then style reference at the END.
+      for (const cm of compModels) {
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compTarget.split(',')[1] } });
+        for (const f of cm.compFaces) parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } });
+        for (const d of cm.compDetails) parts.push({ inlineData: { mimeType: 'image/jpeg', data: d.split(',')[1] } });
       }
-
-      for (const faceImg of faceImages) {
-          const compFace = await compressImage(faceImg, 1024, 0.8);
-          parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
-      }
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
 
       // Mode-aware 2-variation set. Framing is determined by the button mode (fullbody / focus).
       // No camera-angle or perspective gymnastics — just pose and natural moment variation
       // within the chosen framing.
       let lookbookVariations;
-      if (mode === 'fullbody') {
-        lookbookVariations = [
-          "FULL BODY SHOT (Variation 1 of 2): the model's entire body from the top of the head down to below the feet is visible in the frame. The lighting and background MUST be 100% identical to the reference. Natural relaxed pose with weight evenly distributed.",
-          "FULL BODY SHOT (Variation 2 of 2): same FULL BODY framing as Variation 1 (head to toe visible). Same lighting and background. Pose is SUBSTANTIALLY DIFFERENT from Variation 1 — shift weight to one leg (contrapposto), change arm/hand placement (hand in pocket / hand on hip / hand through hair / arms relaxed differently), with a clearly different but natural micro-expression. The outfit silhouette must remain readable."
-        ];
+      if (effMode === 'fullbody') {
+        if (isMulti) {
+          lookbookVariations = [
+            `CAMPAIGN GROUP SHOT (Variation 1 of 2): ALL ${models.length} people stand together in one frame, full body from head to toe, naturally arranged side by side with comfortable spacing. Each person wears their assigned outfit and shows their assigned face. Natural relaxed poses, looking toward the camera. Lighting and background MUST be 100% identical to the reference.`,
+            `CAMPAIGN GROUP SHOT (Variation 2 of 2): same ${models.length}-person group, same full-body framing, same lighting and background. Poses are SUBSTANTIALLY DIFFERENT from Variation 1 — different weight distribution, different hand placement, slight body-orientation changes (one person turned slightly more, another looking off-frame, etc.). Each person remains the SAME individual with the SAME outfit. The outfits and faces stay identifiable.`
+          ];
+        } else {
+          lookbookVariations = [
+            "FULL BODY SHOT (Variation 1 of 2): the model's entire body from the top of the head down to below the feet is visible in the frame. The lighting and background MUST be 100% identical to the reference. Natural relaxed pose with weight evenly distributed.",
+            "FULL BODY SHOT (Variation 2 of 2): same FULL BODY framing as Variation 1 (head to toe visible). Same lighting and background. Pose is SUBSTANTIALLY DIFFERENT from Variation 1 — shift weight to one leg (contrapposto), change arm/hand placement (hand in pocket / hand on hip / hand through hair / arms relaxed differently), with a clearly different but natural micro-expression. The outfit silhouette must remain readable."
+          ];
+        }
       } else {
         // Focus mode — depends on targetFocus
         if (targetFocus === 'lower') {
@@ -1294,7 +1398,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       setGeneratedImages(successfulImages);
       setCurrentImgIndex(0);
 
-      const modeLabel = mode === 'focus' ? '포커스컷' : '전신컷';
+      const modeLabel = isMulti ? `캠페인 그룹샷 (${models.length}명)` : (effMode === 'focus' ? '포커스컷' : '전신컷');
       if (successfulImages.length < 2) {
           showNotification(`${modeLabel} 2장 중 ${successfulImages.length}장만 생성되었습니다.`);
       } else {
@@ -1308,7 +1412,37 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   return (
     <div className="flex flex-row h-full bg-white relative">
       <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-gray-50">
-        <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+        <div className="max-w-7xl mx-auto w-full flex flex-col gap-4 h-full">
+
+          {/* Model tabs — only shows when adding 2+ models becomes relevant */}
+          <div className="flex items-center gap-1 border-b border-black pb-2 flex-wrap">
+            <span className="text-[10px] font-bold uppercase text-gray-500 mr-2">모델</span>
+            {models.map((m, idx) => (
+              <div key={m.id} className="flex items-center">
+                <button
+                  onClick={() => setActiveModelIdx(idx)}
+                  className={`px-3 py-1.5 text-xs font-bold uppercase border transition-colors ${activeModelIdx === idx ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'}`}
+                >
+                  {m.name}
+                </button>
+                {models.length > 1 && (
+                  <button onClick={() => removeModelAt(idx)} title="이 모델 제거" className="ml-0.5 mr-1 w-5 h-5 rounded-full bg-gray-200 hover:bg-red-500 hover:text-white text-gray-600 text-[10px] font-bold flex items-center justify-center">×</button>
+                )}
+              </div>
+            ))}
+            {models.length < 3 && (
+              <button onClick={addModel} className="px-3 py-1.5 text-xs font-bold uppercase bg-white text-black border-2 border-dashed border-gray-400 hover:border-black hover:bg-gray-50 transition-colors flex items-center gap-1">
+                <Plus className="w-3 h-3" /> 모델 추가
+              </button>
+            )}
+            {models.length > 1 && (
+              <span className="ml-auto text-[10px] font-bold uppercase text-black bg-yellow-100 border border-yellow-300 px-2 py-1">
+                캠페인 모드 · 그룹샷 {models.length}명
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 mb-2">
@@ -1349,7 +1483,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                {productDetailImages.map((img, idx) => (
                   <div key={idx} className="relative w-16 h-16 border border-gray-300 shrink-0 bg-white">
                      <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
-                     <button onClick={() => setProductDetailImages(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                     <button onClick={() => updateActiveModelFn(m => ({ ...m, productDetailImages: m.productDetailImages.filter((_, i) => i !== idx) }))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
                   </div>
                ))}
                {productDetailImages.length < 3 && (
@@ -1372,14 +1506,14 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                 <div className="flex-1 flex flex-col gap-2 border-2 border-dashed border-gray-400 bg-white p-2 min-h-[400px]">
                     <div className="flex-1 w-full h-full relative border border-gray-200">
                         <img src={faceImages[0]} className="w-full h-full object-contain absolute inset-0" alt="Primary Face" />
-                        <button onClick={() => setFaceImages(prev => prev.slice(1))} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
+                        <button onClick={() => updateActiveModelFn(m => ({ ...m, faceImages: m.faceImages.slice(1) }))} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
                     </div>
                     {faceImages.length > 1 && (
                         <div className="flex gap-2 overflow-x-auto py-1 shrink-0 h-24 custom-scrollbar">
                             {faceImages.slice(1).map((img, idx) => (
                                 <div key={idx+1} className="w-20 h-full shrink-0 relative border border-gray-200">
                                     <img src={img} className="w-full h-full object-cover" alt={`Face ${idx+2}`}/>
-                                    <button onClick={() => setFaceImages(prev => prev.filter((_, i) => i !== idx + 1))} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                                    <button onClick={() => updateActiveModelFn(m => ({ ...m, faceImages: m.faceImages.filter((_, i) => i !== idx + 1) }))} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-3 h-3"/></button>
                                 </div>
                             ))}
                         </div>
@@ -1394,6 +1528,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                 </div>
             )}
           </div>
+          </div> {/* end inner 3-col grid */}
         </div>
       </div>
 
@@ -1498,25 +1633,30 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
             {(() => {
               const focusLabel = targetFocus === 'lower' ? '하반신' : '상반신';
-              const isDisabled = isGenerating || !targetImage || !prompt;
+              const isMulti = models.length > 1;
+              const anyTargetMissing = models.some(m => !m.targetImage);
+              const isDisabled = isGenerating || anyTargetMissing || !prompt;
               const wasFullBody = lastGenMode === 'fullbody' && generatedImages.length > 0;
               const wasFocus = lastGenMode === 'focus' && generatedImages.length > 0;
+              const fullbodyLabel = isMulti ? `캠페인 그룹샷 2장 (${models.length}명)` : '전신 2장';
               return (
                 <div className="flex flex-col gap-2 mt-2">
                   <button onClick={() => handleGenerate('fullbody')} disabled={isDisabled} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFullBody ? 'bg-gray-800' : 'bg-black'}`}>
                     {isGenerating && lastGenMode === 'fullbody' ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /> 전신 2장 생성 중...</>
+                      <><Loader2 className="w-5 h-5 animate-spin" /> {fullbodyLabel} 생성 중...</>
                     ) : wasFullBody ? (
-                      <><RefreshCcw className="w-5 h-5" /> 전신 2장 재생성</>
+                      <><RefreshCcw className="w-5 h-5" /> {fullbodyLabel} 재생성</>
                     ) : (
-                      <><Sparkles className="w-5 h-5" /> 전신 2장 자동생성</>
+                      <><Sparkles className="w-5 h-5" /> {fullbodyLabel} 자동생성</>
                     )}
                   </button>
-                  <button onClick={() => handleGenerate('focus')} disabled={isDisabled} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFocus ? 'bg-gray-800' : 'bg-black'}`}>
+                  <button onClick={() => handleGenerate('focus')} disabled={isDisabled || isMulti} title={isMulti ? '캠페인 그룹샷에서는 포커스 모드를 사용할 수 없습니다.' : ''} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFocus ? 'bg-gray-800' : 'bg-black'}`}>
                     {isGenerating && lastGenMode === 'focus' ? (
                       <><Loader2 className="w-5 h-5 animate-spin" /> {focusLabel} 2장 생성 중...</>
                     ) : wasFocus ? (
                       <><RefreshCcw className="w-5 h-5" /> {focusLabel} 2장 재생성</>
+                    ) : isMulti ? (
+                      <><Sparkles className="w-5 h-5 opacity-50" /> {focusLabel} 포커스 (다중 모델 시 비활성)</>
                     ) : (
                       <><Sparkles className="w-5 h-5" /> {focusLabel} 포커스 2장 자동생성</>
                     )}
