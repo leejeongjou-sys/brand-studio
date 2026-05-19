@@ -2521,9 +2521,11 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
                 <img src={generatedFits[currentFitIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated Fit" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
                 <button onClick={(e) => { e.stopPropagation(); handleDownload(); }} title="이미지 다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-4 h-4 text-black" /></button>
+                {/* Video send button temporarily disabled (Video Studio is hidden).
                 {sendToVideo && (
                   <button onClick={(e) => { e.stopPropagation(); sendToVideo([generatedFits[currentFitIndex]]); }} title="이 이미지로 영상 만들기" className="absolute top-3 right-14 z-20 bg-black/95 hover:bg-black border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-bold">🎬</button>
                 )}
+                */}
 
                 {generatedFits.length > 1 && (
                   <>
@@ -3210,9 +3212,11 @@ ${productRule}${detailRule}
                         <Maximize2 className="w-12 h-12 text-black/50 drop-shadow-md" />
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-5 h-5 text-black" /></button>
+                    {/* Video send button temporarily disabled (Video Studio is hidden).
                     {sendToVideo && (
                       <button onClick={(e) => { e.stopPropagation(); sendToVideo([generatedImage]); }} title="이 이미지로 영상 만들기" className="absolute top-3 right-16 z-20 bg-black/95 hover:bg-black border border-black p-2.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-bold">🎬</button>
                     )}
+                    */}
 
                     {generatedImages.length > 1 && (
                       <>
@@ -3366,7 +3370,9 @@ const Sidebar = ({ currentView, onNavigate, onExport, onImport, isProcessing }) 
         <button onClick={() => onNavigate('lookbook')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'lookbook' || currentView === 'generator' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><BookOpen className={currentView === 'lookbook' || currentView === 'generator' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">LOOKBOOK</span></button>
         <button onClick={() => onNavigate('fitting')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'fitting' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><Layers className={currentView === 'fitting' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">FITTING ROOM</span></button>
         <button onClick={() => onNavigate('product_studio')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'product_studio' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><Package className={currentView === 'product_studio' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">PRODUCT SHOT</span></button>
+        {/* Video Studio temporarily hidden — re-enable when ready.
         <button onClick={() => onNavigate('video')} className={`w-full flex items-center gap-4 px-6 py-4 border-b border-black transition-all group ${currentView === 'video' ? 'bg-black text-white' : 'text-black hover:bg-gray-100'}`}><Film className={currentView === 'video' ? 'text-white' : 'text-black'} /><span className="font-bold text-sm hidden lg:block flex-1 text-left tracking-wider uppercase">VIDEO STUDIO</span></button>
+        */}
       </div>
       <div className="p-4 border-t border-black shrink-0 bg-gray-50">
         <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Database className="w-3 h-3" /> 데이터 관리</h4>
