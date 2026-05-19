@@ -406,7 +406,7 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
 
   try { console.log('[Veo request body]', JSON.stringify({ ...body, instances: body.instances.map(i => ({ ...i, image: '<base64>', lastFrame: i.lastFrame ? '<base64>' : undefined })) }).slice(0, 800)); } catch (e) { /* ignore */ }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-lite-generate-preview:predictLongRunning?key=${apiKey}`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -420,7 +420,7 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
     throw new Error(`Veo API Error ${res.status}: ${data?.error?.message || raw}`);
   }
   if (!data?.name) throw new Error('Veo 응답에 operation name이 없습니다.');
-  return data.name; // e.g. "models/veo-2.0-generate-001/operations/abc123"
+  return data.name; // e.g. "models/veo-3.1-lite-generate-preview/operations/abc123"
 };
 
 // Poll a Veo operation until completion.
@@ -1856,8 +1856,8 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
           {/* Cost */}
           <div className="p-3 bg-yellow-50 border border-yellow-200">
             <div className="text-xs font-bold text-black mb-1">💰 예상 비용</div>
-            <div className="text-[11px] text-gray-700">4초 × 720p × 1개 (Veo 2) ≈ <b>약 ₩1,900</b> (~$1.40)</div>
-            <div className="text-[10px] text-gray-500 mt-1">Veo 2 = $0.35/초 (720p) · 정확한 청구액은 Google AI Studio 빌링 참고</div>
+            <div className="text-[11px] text-gray-700">4초 × 720p × 1개 (Veo 3.1 Lite Preview)</div>
+            <div className="text-[10px] text-gray-500 mt-1">Preview 모델 가격 미공개 · 정확한 청구액은 Google AI Studio 빌링 참고</div>
             <div className="text-[10px] text-gray-500">생성 시간: 약 30초 ~ 2분</div>
           </div>
 
