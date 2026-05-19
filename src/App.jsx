@@ -397,7 +397,7 @@ const veoStartImageToVideo = async ({ apiKey, imageDataUrl, lastFrameDataUrl, pr
     instances: [instance],
     parameters: {
       aspectRatio: mapAspectRatioToVeo(aspectRatio),
-      durationSeconds: String(durationSeconds),
+      durationSeconds: Number(durationSeconds),
       personGeneration: 'allow_adult'
     }
   };
