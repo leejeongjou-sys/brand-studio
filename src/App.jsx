@@ -353,12 +353,9 @@ const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', api
 // =========================================
 // VEO 2 — Image-to-Video Generation
 // =========================================
-// Veo 2 natively supports 9:16 and 16:9. 1:1 may or may not work depending on release.
-// We map 3:4 -> 9:16 (closest vertical ratio). The UI will tell the user upfront.
+// Veo 2 (via Gemini API) ONLY supports 9:16 and 16:9. 1:1 / 3:4 / others are rejected with HTTP 400.
+// Safety fallback: anything that isn't 16:9 maps to 9:16. The UI is limited to the two supported ratios.
 const mapAspectRatioToVeo = (userAspect) => {
-  if (userAspect === '3:4') return '9:16';
-  if (userAspect === '1:1') return '1:1';
-  if (userAspect === '9:16') return '9:16';
   if (userAspect === '16:9') return '16:9';
   return '9:16';
 };
@@ -1577,7 +1574,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 // ============================================================
 const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSeed }) => {
   const [sourceImages, setSourceImages] = useState([]); // 최대 2장 (start + end)
-  const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [aspectRatio, setAspectRatio] = useState('9:16');
   const [motionType, setMotionType] = useState('breath');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isSuggesting, setIsSuggesting] = useState(false);
@@ -1808,10 +1805,14 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">1. 종횡비</h3>
             <div className="grid grid-cols-2 gap-2">
-              {['1:1', '9:16'].map(r => (
-                <button key={r} onClick={() => setAspectRatio(r)} disabled={isGenerating} className={`py-3 text-sm font-bold border-2 transition-colors ${aspectRatio === r ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'} disabled:opacity-40`}>{r}</button>
+              {[
+                { id: '9:16', label: '9:16 (세로 · 릴스/쇼츠)' },
+                { id: '16:9', label: '16:9 (가로 · YouTube)' }
+              ].map(r => (
+                <button key={r.id} onClick={() => setAspectRatio(r.id)} disabled={isGenerating} className={`py-3 px-2 text-xs font-bold border-2 transition-colors ${aspectRatio === r.id ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:border-black'} disabled:opacity-40`}>{r.label}</button>
               ))}
             </div>
+            <p className="text-[10px] text-gray-500 font-medium">Veo 2가 지원하는 종횡비만 표시됩니다.</p>
           </div>
 
           {/* Motion type */}
