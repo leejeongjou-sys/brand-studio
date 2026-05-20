@@ -69,6 +69,11 @@ const MODEL_OPTIONS = {
 
 const ANALYSIS_MODEL_ID = 'gemini-3.1-flash-image-preview';
 
+// --- SINGLETON FIREBASE INITIALIZATION ---
+let firebaseApp;
+let firebaseAuth;
+let firebaseDb;
+let authPersistenceSet = false;
 
 const getFirebase = () => {
   if (!firebaseApp) {
