@@ -69,76 +69,6 @@ const MODEL_OPTIONS = {
 
 const ANALYSIS_MODEL_ID = 'gemini-3.1-flash-image-preview';
 
-// --- MODEL PROFILES (snippet-driven identity reinforcement) ---
-// When a fitting-room prompt contains one of these tokens, the corresponding
-// lock text is injected at the top of the generation prompt as a hard identity rule.
-const MODEL_PROFILES = [
-  {
-    id: 'seojun',
-    label: '서준 모델 고정',
-    token: '[서준 모델 프로필 적용]',
-    lockText: `SEOJUN MODEL PROFILE — STRICT IDENTITY LOCK (HIGHEST PRIORITY, OVERRIDES any conflicting instruction):
-
-The model in all 4 generated images IS the Korean male named 서준. Preserve verbatim the following identity:
-
-FACE:
-- Face shape: oval with soft jawline, narrow chin
-- Eyes: monolid with subtle double-lid crease, dark brown irises, balanced inter-pupillary distance
-- Eyebrows: straight, medium-thick, natural black, slight arch at outer third
-- Nose: straight bridge, narrow, refined tip
-- Lips: medium fullness, slightly defined cupid's bow, neutral pink tone
-- Skin: clear, smooth, neutral-warm undertone, no visible blemishes
-- Hair: jet black, soft natural texture, side-swept fringe over forehead
-
-DEMOGRAPHICS:
-- Age: late teens / early 20s
-- Ethnicity: Korean male
-
-PROPORTIONS (mathematically locked):
-- Facial proportions and bone structure mathematically identical to the reference (eye spacing, nose-to-mouth distance, forehead-to-chin ratio)
-
-BODY:
-- Slim, lean Korean male physique
-- Height ≈ 178cm
-- Build: narrow shoulders (shoulder width ≈ 1.6x head width), long limbs
-- Proportions: 8-head body ratio, long legs
-- Skin tone consistent with face: neutral-warm
-
-NEGATIVE — each is a HARD FAILURE:
-- Different person
-- Altered facial features
-- Plastic skin / CGI face
-- Exaggerated jawline
-- Different eye color or hair color
-- Western facial features
-- Aged appearance
-- Distorted proportions
-- Extra fingers / extra limbs
-- Watermark / text / logo overlay
-
-This profile lock RUNS IN ADDITION TO the uploaded reference face images — both sources describe the SAME person, and the model identity must match BOTH the images AND this written profile.`,
-  },
-];
-
-// Strip all known profile tokens from the user prompt and return the list of activated profiles.
-const expandModelProfileTokens = (userPrompt) => {
-  let cleanText = userPrompt || '';
-  const activeProfiles = [];
-  for (const profile of MODEL_PROFILES) {
-    if (cleanText.includes(profile.token)) {
-      activeProfiles.push(profile);
-      // Remove the token (with surrounding whitespace/commas) from the visible prompt
-      cleanText = cleanText.split(profile.token).join('').replace(/\s*,\s*,\s*/g, ', ').replace(/^\s*,\s*/, '').replace(/\s*,\s*$/, '').trim();
-    }
-  }
-  return { cleanText, activeProfiles };
-};
-
-// --- SINGLETON FIREBASE INITIALIZATION ---
-let firebaseApp;
-let firebaseAuth;
-let firebaseDb;
-let authPersistenceSet = false;
 
 const getFirebase = () => {
   if (!firebaseApp) {
@@ -905,33 +835,29 @@ const LookbookDashboardGrid = ({ references, selectedBrand, onSelectReference, o
 };
 
 const LookbookGenerator = ({ reference, references = [], onBack, settings, showNotification }) => {
-  const [currentReference, setCurrentReference] = useState(reference);
-  // Multi-model state: each model has its own outfit (targetImage) + face references + detail cuts.
-  // When models.length === 1 -> single-model legacy behavior. When >= 2 -> campaign group shot.
+  // ─── Multi-model state (campaign mode) ───
+  // Each model has its own outfit (targetImage), faces, and detail cuts.
+  // models.length === 1 → single-model legacy behavior.
+  // models.length >= 2 → campaign group shot (poses inherited from reference image).
   const [models, setModels] = useState([
     { id: 1, name: 'Model A', targetImage: null, faceImages: [], productDetailImages: [] }
   ]);
   const [activeModelIdx, setActiveModelIdx] = useState(0);
   const activeModel = models[activeModelIdx] || models[0];
-  // Convenience accessors that read from the active model (so the existing UI bindings stay terse)
+  // Derived accessors so the existing single-model UI bindings keep working unchanged
   const targetImage = activeModel?.targetImage || null;
   const faceImages = activeModel?.faceImages || [];
   const productDetailImages = activeModel?.productDetailImages || [];
-
-  const updateActiveModel = (updates) => {
-    setModels(prev => prev.map((m, i) => i === activeModelIdx ? { ...m, ...updates } : m));
-  };
-  const updateActiveModelFn = (updaterFn) => {
-    setModels(prev => prev.map((m, i) => i === activeModelIdx ? updaterFn(m) : m));
-  };
+  const setTargetImage = (img) => setModels(prev => prev.map((m, i) => i === activeModelIdx ? { ...m, targetImage: img } : m));
+  const setFaceImages = (updater) => setModels(prev => prev.map((m, i) => i === activeModelIdx ? { ...m, faceImages: typeof updater === 'function' ? updater(m.faceImages || []) : updater } : m));
+  const setProductDetailImages = (updater) => setModels(prev => prev.map((m, i) => i === activeModelIdx ? { ...m, productDetailImages: typeof updater === 'function' ? updater(m.productDetailImages || []) : updater } : m));
   const addModel = () => {
     setModels(prev => {
       if (prev.length >= 3) return prev;
-      const nextLetter = String.fromCharCode(65 + prev.length); // 'A','B','C'
+      const nextLetter = String.fromCharCode(65 + prev.length);
       const nextId = Math.max(...prev.map(m => m.id)) + 1;
-      const newModel = { id: nextId, name: `Model ${nextLetter}`, targetImage: null, faceImages: [], productDetailImages: [] };
-      setActiveModelIdx(prev.length); // jump to the newly added model
-      return [...prev, newModel];
+      setActiveModelIdx(prev.length);
+      return [...prev, { id: nextId, name: `Model ${nextLetter}`, targetImage: null, faceImages: [], productDetailImages: [] }];
     });
   };
   const removeModelAt = (idx) => {
@@ -943,9 +869,10 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       return next;
     });
   };
+  const isMulti = models.length > 1;
+  // ─── End multi-model state ───
   const [generatedImages, setGeneratedImages] = useState([]);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
-  const [lastGenMode, setLastGenMode] = useState(null); // 'fullbody' | 'focus' | null
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [prompt, setPrompt] = useState(reference.prompt || '');
@@ -955,8 +882,6 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   const [targetFocus, setTargetFocus] = useState('upper'); // 'upper' (상의/전신) or 'lower' (하의/바지)
   const [showZoomModal, setShowZoomModal] = useState(false);
   const [selectedPhotographer, setSelectedPhotographer] = useState('');
-  const [showSwapModal, setShowSwapModal] = useState(false);
-  const [swapBrandFilter, setSwapBrandFilter] = useState('All');
 
   const lookbookSnippets = [
     "이목구비 완벽 고정",
@@ -968,7 +893,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     "보정 없는 RAW 사진 느낌",
     "스냅샷 같은 찰나의 순간"
   ];
-
+  
   const photographerOptions = [
       { id: 'maria_svarbova', name: 'Maria Svarbova', desc: '파스텔,쿨톤,미니멀리즘,플랫 조명', style: 'Shot by Maria Svarbova, pastel colors, minimalist flat lighting, surreal atmosphere, precise facial features' },
       { id: 'nina_ahn', name: 'Nina Ahn', desc: '아날로그 필름', style: 'Shot by Nina Ahn, warm analog film photography, melancholic and dreamy mood, clear facial details' },
@@ -978,29 +903,25 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       { id: 'elizaveta_porodina', name: 'Elizaveta Porodina', desc: '회화적 사진', style: 'Shot by Elizaveta Porodina, experimental lighting, Photo in painting style,ensure the face remains completely sharp and undistorted' }
   ];
 
-  // All upload handlers route to the active model.
   const handleTargetUpload = async (file) => {
     if (!file) return;
     const r = new FileReader();
-    r.onload = async () => {
-      try {
-        const img = await compressImage(r.result, 1024, 0.8);
-        updateActiveModel({ targetImage: img });
-      } catch { /* ignore */ }
-    };
+    r.onload = async () => { try { const img = await compressImage(r.result, 1024, 0.8); setTargetImage(img); } catch { /* ignore */ } };
     r.readAsDataURL(file);
   };
 
   const handleDetailUpload = async (files) => {
     if (!files || files.length === 0) return;
-    const availableSlots = 3 - (activeModel?.productDetailImages?.length || 0);
-    const filesToProcess = Array.from(files).slice(0, availableSlots);
+    const newFiles = Array.from(files);
+    const availableSlots = 3 - productDetailImages.length;
+    const filesToProcess = newFiles.slice(0, availableSlots);
+
     for (const file of filesToProcess) {
       const r = new FileReader();
       r.onload = async () => {
         try {
           const img = await compressImage(r.result, 1024, 0.8);
-          updateActiveModelFn(m => ({ ...m, productDetailImages: [...(m.productDetailImages || []), img] }));
+          setProductDetailImages(prev => [...prev, img]);
         } catch { /* ignore */ }
       };
       r.readAsDataURL(file);
@@ -1010,14 +931,14 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   const handleFaceUpload = async (files) => {
     if (!files || files.length === 0) return;
     Array.from(files).forEach(file => {
-      const r = new FileReader();
-      r.onload = async () => {
-        try {
-          const img = await compressImage(r.result, 1024, 0.8);
-          updateActiveModelFn(m => ({ ...m, faceImages: [...(m.faceImages || []), img] }));
-        } catch { /* ignore */ }
-      };
-      r.readAsDataURL(file);
+        const r = new FileReader();
+        r.onload = async () => { 
+            try { 
+                const img = await compressImage(r.result, 1024, 0.8); 
+                setFaceImages(prev => [...prev, img]); 
+            } catch { /* ignore */ } 
+        };
+        r.readAsDataURL(file);
     });
   };
 
@@ -1032,31 +953,31 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   };
 
   const generateDraftPrompt = async () => {
-    if (!targetImage || !currentReference) return showNotification("의상/전신 타겟 이미지와 레퍼런스 이미지가 모두 필요합니다.", "error");
+    if (!targetImage || !reference) return showNotification("의상/전신 타겟 이미지와 레퍼런스 이미지가 모두 필요합니다.", "error");
     setIsGeneratingPrompt(true);
     try {
       const apiKeyToUse = settings?.apiKey || DEFAULT_API_KEY;
 
-      const compRef = await compressImage(currentReference.image, 1024, 0.8);
+      const compRef = await compressImage(reference.image, 1024, 0.8);
       const compTarget = await compressImage(targetImage, 1024, 0.8);
 
       const parts = [
         { text: `
           You are a professional Creative Director for a high-end fashion brand.
-
+          
           YOUR TASK:
           1. Analyze the [Reference Image] for its art direction: lighting, color palette, mood, and background.
           2. Analyze the [Target Image] with **EXTREME PRECISION** for the Subject's body and Clothing.
           ${productDetailImages.length > 0 ? '3. Analyze the [Product Detail Images] to extract exact fabric texture, material, and stitching details.' : ''}
           ${faceImages.length > 0 ? '4. Analyze the [Face Image] as the ABSOLUTE source of truth for the facial identity and micro-proportions.' : ''}
-
+          
           CRITICAL ANALYSIS POINTS:
           ${faceImages.length > 0 ? '- **FACE & IDENTITY**: Analyze specific eye shape, nose bridge, lip fullness, jawline, skin texture, and hair flow strictly based on the **[Face Image]** with extreme micro-precision.' : '- **FACE & IDENTITY**: Analyze specific eye shape, nose bridge, lip fullness, jawline, skin texture, and hair flow based on [Target Image].'}
           - **CLOTHING DETAILS**: Analyze fabric texture, exact silhouette, stitching details, and how the fabric drapes based on ${productDetailImages.length > 0 ? '[Target Image] AND [Product Detail Images]' : '[Target Image]'}.
-
+          
           OUTPUT GOAL:
           Write a detailed image generation prompt in **KOREAN (한국어)**.
-
+          
           **CRITICAL**: The prompt MUST START with the following IDENTITY LOCK instruction (copy exactly):
           ---
           [아이덴티티 고정 지시]
@@ -1065,7 +986,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
           - 헤어스타일 및 머리카락 질감 그대로 유지
           - 새로운 인물 생성 절대 금지, 소스 이미지의 인물과 완벽히 일치해야 함
           ---
-
+          
           Then, structure the rest of the prompt into these categories:
           1. **전체 분위기 (Mood)**: Based on [Reference Image].
           2. **배경 (Background)**: Based on [Reference Image].
@@ -1092,14 +1013,14 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       }
 
       const response = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`, 
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contents: [{ role: 'user', parts }] })
         }
       );
-
+      
       const data = await response.json();
       if (data.error) throw new Error(`API Error: ${data.error.message}`);
 
@@ -1127,148 +1048,66 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     } catch { showNotification("수정 실패", "error"); } finally { setIsRefining(false); }
   };
 
-  const handleGenerate = async (mode = 'fullbody') => {
-    // mode: 'fullbody' (전신 2장) | 'focus' (포커스 2장 — targetFocus에 따라 상/하/신발)
-    // Multi-model campaign mode: when models.length > 1, focus mode is disabled and forced to fullbody group shot.
-    const isMulti = models.length > 1;
-    const effMode = isMulti ? 'fullbody' : mode;
-
-    // Validate each model: must have a target outfit
+  const handleGenerate = async () => {
+    // Validate every model has a target image (in single-model mode this is just the active one)
     for (let i = 0; i < models.length; i++) {
-      const m = models[i];
-      if (!m.targetImage) return showNotification(`${m.name}의 의상/전신 이미지를 업로드해주세요.`, 'error');
+      if (!models[i].targetImage) return showNotification(`${models[i].name}의 의상/전신 이미지를 업로드해주세요.`, 'error');
     }
     if (!prompt) return showNotification("프롬프트를 먼저 입력하거나 생성해주세요.", "error");
 
     setIsGenerating(true);
-    setGeneratedImages([]);
-    setCurrentImgIndex(0);
-    setLastGenMode(effMode);
     try {
-      // Compress per-model assets in one batch
-      const compModels = await Promise.all(models.map(async (m) => ({
+      // Multi-model: compress every model's assets
+      const compModels = isMulti ? await Promise.all(models.map(async (m) => ({
         name: m.name,
         compTarget: await compressImage(m.targetImage, 1024, 0.8),
-        compFaces: await Promise.all((m.faceImages || []).map(f => compressImage(f, 1280, 0.95))),
+        compFaces: await Promise.all((m.faceImages || []).map(f => compressImage(f, 1024, 0.8))),
         compDetails: await Promise.all((m.productDetailImages || []).map(d => compressImage(d, 1024, 0.8)))
-      })));
-      // Legacy single-model vars (still used by single-model prompt path)
-      const compTarget = compModels[0].compTarget;
-      const compRef = await compressImage(currentReference.image, 1024, 0.8);
+      }))) : null;
 
-      // Build per-model "input image" indexing for the prompt.
-      // Two orderings:
-      //   SINGLE-MODEL (legacy, proven): [text, target, ref, details, faces] → face at the END = stronger identity bookend
-      //   MULTI-MODEL: [text, per-model(outfit+faces+details), ref] → ref last so reference layout dominates composition
-      const modelBlocks = [];
-      let imgIdx = 1;
-      let refImgIdx;
-      if (isMulti) {
-        compModels.forEach((cm) => {
-          const outfitIdx = imgIdx; imgIdx++;
-          const faceStart = imgIdx; imgIdx += cm.compFaces.length;
-          const detailStart = imgIdx; imgIdx += cm.compDetails.length;
-          modelBlocks.push({
-            name: cm.name,
-            outfitIdx,
-            faceRange: cm.compFaces.length > 0 ? `${faceStart}${cm.compFaces.length > 1 ? `~${faceStart + cm.compFaces.length - 1}` : ''}` : null,
-            detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null
-          });
-        });
-        refImgIdx = imgIdx; imgIdx++;
-      } else {
-        // Single-model legacy ordering
-        const cm = compModels[0];
-        const outfitIdx = imgIdx; imgIdx++;       // 1: target
-        refImgIdx = imgIdx; imgIdx++;             // 2: reference style
-        const detailStart = imgIdx; imgIdx += cm.compDetails.length;
-        const faceStart = imgIdx; imgIdx += cm.compFaces.length;
-        modelBlocks.push({
-          name: cm.name,
-          outfitIdx,
-          faceRange: cm.compFaces.length > 0 ? `${faceStart}${cm.compFaces.length > 1 ? `~${faceStart + cm.compFaces.length - 1}` : ''}` : null,
-          detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null
-        });
-      }
+      const compTarget = await compressImage(targetImage, 1024, 0.8);
+      const compRef = await compressImage(reference.image, 1024, 0.8);
 
-      let inputImagesText;
-      let clothesRuleText;
-      if (isMulti) {
-        inputImagesText = `\n    [IMAGE INPUTS — REFERENCE-DRIVEN MULTI-MODEL CAMPAIGN]\n`;
-        modelBlocks.forEach((b, i) => {
-          inputImagesText += `    ${b.name} (will replace the ${i === 0 ? '1st' : i === 1 ? '2nd' : '3rd'} person FROM THE RIGHT in the reference):\n`;
-          inputImagesText += `      Image ${b.outfitIdx} = ${b.name} outfit\n`;
-          if (b.faceRange) inputImagesText += `      Image ${b.faceRange} = ${b.name} face\n`;
-          if (b.detailRange) inputImagesText += `      Image ${b.detailRange} = ${b.name} fabric details\n`;
-        });
-        inputImagesText += `    Image ${refImgIdx} = REFERENCE IMAGE — used as the POSE / COMPOSITION / MOOD template. Contains ${models.length}+ people whose poses Model A/B${models.length > 2 ? '/C' : ''} will inherit.`;
-
-        const mappingLines = modelBlocks.map((b, i) => {
-          const ord = i === 0 ? '1st from RIGHT' : i === 1 ? '2nd from RIGHT' : '3rd from RIGHT';
-          return `    - The ${ord} person in the reference → REPLACE with ${b.name} (face from Image ${b.faceRange || b.outfitIdx}, outfit from Image ${b.outfitIdx}). Keep their EXACT pose, body angle, head direction, gaze, gesture, hand placement, and spatial position.`;
-        }).join('\n');
-
-        clothesRuleText = `\n    [RULE 1: REFERENCE-DRIVEN POSE & COMPOSITION TEMPLATE]\n    The Reference Image (Image ${refImgIdx}) is the POSE & COMPOSITION TEMPLATE. Identify the people in the reference and order them from right to left. Then perform a one-to-one IDENTITY SWAP:\n${mappingLines}\n\n    INHERIT FROM THE REFERENCE (per replaced person):\n    - Body pose, posture, body orientation, head tilt, gaze direction, arm/hand placement, leg position\n    - Spatial position in the frame, distance from the other people, interaction direction\n    - Background, lighting, color grade, atmosphere — same as reference\n\n    OVERRIDE FROM EACH MODEL'S OWN IMAGES:\n    - Face / identity / skin tone / hair → from that model's face references\n    - Outfit / clothing / accessories → from that model's outfit image\n\n    PROHIBITED: NEVER swap which model goes into which position. NEVER mix outfits between models. NEVER bring the original reference people's faces or clothes into the output. The reference is a pose blueprint, the models supply the identities and clothes.`;
-      } else {
-        // Single-model legacy paths
-        const b = modelBlocks[0];
-        inputImagesText = `
+      let inputImagesText = `
     [IMAGE INPUTS RECOGNITION]
-    Image ${b.outfitIdx} (Target Subject): Source for TARGET BODY & EXACT CLOTHES.
-    Image ${refImgIdx} (Reference Style): Source for ENVIRONMENT, LIGHTING & MOOD.`;
-        clothesRuleText = `
+    Image 1 (Target Subject): Source for TARGET BODY & EXACT CLOTHES.
+    Image 2 (Reference Style): Source for ENVIRONMENT, LIGHTING & MOOD.`;
+
+      let clothesRuleText = `
     [RULE 1: TARGET CLOTHING & BODY (ABSOLUTE LOCK)]
-    - SOURCE: Image ${b.outfitIdx} (Target Subject)
-    - MANDATORY: You MUST dress the subject in the exact outfit shown in Image ${b.outfitIdx}. Copy the fabric, fit, styling, and silhouette perfectly.
-    - PROHIBITED: NEVER use the clothing from Image ${refImgIdx}. The outfit in Image ${refImgIdx} is strictly forbidden and MUST NOT appear in the final image.`;
-      }
+    - SOURCE: Image 1 (Target Subject)
+    - MANDATORY: You MUST dress the subject in the exact outfit shown in Image 1. Copy the fabric, fit, styling, and silhouette perfectly.
+    - PROHIBITED: NEVER use the clothing from Image 2. The outfit in Image 2 is strictly forbidden and MUST NOT appear in the final image.`;
 
       let styleRuleText = `
     [RULE 2: STYLE & ENVIRONMENT TRANSFER (ABSOLUTE SCENE LOCK)]
-    - SOURCE: Image ${refImgIdx} (Reference Style)
-    - MANDATORY: Change the background, lighting, and color grading to match Image ${refImgIdx} perfectly. Extract the atmosphere and lighting.
-    - ENVIRONMENTAL LOCK: The background scene, lighting direction, shadows, and overall atmosphere MUST be perfectly locked and identical across both generated images.
-    - PROHIBITED: Do not bring the person or outfit from Image ${refImgIdx} into the new image. Ignore ALL text, typography, logos, or collages from Image ${refImgIdx}.`;
+    - SOURCE: Image 2 (Reference Style)
+    - MANDATORY: Change the background, lighting, and color grading to match Image 2 perfectly. Extract the atmosphere and lighting.
+    - ENVIRONMENTAL LOCK: The background scene, lighting direction, shadows, and overall atmosphere MUST be perfectly locked and identical across all generated images. Do not alter the environment.
+    - PROHIBITED: Do not bring the person or outfit from Image 2 into the new image. Ignore ALL text, typography, logos, or collages from Image 2.`;
 
-      // Build face / detail / group rules using the pre-computed model blocks
-      let faceRuleText = '';
-      if (isMulti) {
-        faceRuleText = `\n    [RULE 2 — REFERENCE POSE INHERITANCE (PER PERSON)]\n    Each replaced person retains the exact pose of the reference person they replaced. Match their body angle, head tilt, gaze direction, arm/hand placement, leg position, and facial expression intensity — the SAME pose, just with a different face & outfit.\n\n    [RULE 3 — FACE & TEXTURE OVERRIDE (PER PERSON)]\n`;
-        modelBlocks.forEach((b, i) => {
-          const ord = i === 0 ? '1st-from-right' : i === 1 ? '2nd-from-right' : '3rd-from-right';
-          if (b.faceRange) {
-            faceRuleText += `    ${ord} replaced person = ${b.name}: face strictly from Image ${b.faceRange}${b.detailRange ? `, fabric texture from Image ${b.detailRange}` : ''}.\n`;
-          } else {
-            faceRuleText += `    ${ord} replaced person = ${b.name}: face from whoever appears in Image ${b.outfitIdx}${b.detailRange ? `, fabric texture from Image ${b.detailRange}` : ''}.\n`;
-          }
-        });
-        faceRuleText += `    Keep each model's identity consistent across BOTH generated images. Different models are different distinct people — never blend their features.`;
+      let faceRuleText = ``;
+      let currentImgIdx = 3;
+
+      if (productDetailImages.length > 0) {
+          inputImagesText += `\n    Image ${currentImgIdx} to ${currentImgIdx + productDetailImages.length - 1} (Detail Images): Source for CLOTHING MICRO-TEXTURE.`;
+          clothesRuleText += `\n    - TEXTURE LOCK: Use these detail images to perfectly replicate the fabric weave and stitching of the outfit.`;
+          currentImgIdx += productDetailImages.length;
+      }
+
+      if (faceImages.length > 0) {
+          inputImagesText += `\n    Image ${currentImgIdx}+ (Face Detail Images): Source for TARGET FACE (Facial features).`;
+          faceRuleText = `
+    [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
+    - SOURCE: Image ${currentImgIdx}+ (Face Detail Images)
+    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact proportions of eyes, nose, lips, jawline, and skin tone from these face images. Keep the exact hairstyle.
+    - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
       } else {
-        const b = modelBlocks[0];
-        if (b.faceRange) {
           faceRuleText = `
-    [RULE 3: TARGET FACE LOCK — #1 ABSOLUTE NON-NEGOTIABLE PRIORITY]
-    - SOURCE OF TRUTH: Image ${b.faceRange} (Face Detail Images). These face images are the SINGLE SOURCE OF TRUTH for the model's identity and override every other input for facial features.
-    - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame:
-      * Eye shape, eye spacing (canthal tilt), iris color and pattern, eyelid fold structure
-      * Nose bridge length/width, nostril shape, nose tip
-      * Lip shape, philtrum, mouth corner angle, teeth visibility/shape
-      * Jawline angle, chin shape, cheekbone height, ear shape
-      * Eyebrow shape, density, and natural growth direction
-      * Skin tone (exact hue/value), freckles, moles, scars, birthmarks — copy ALL of them in their exact positions
-      * Hairline, hair color, hair texture, parting direction, exact hairstyle volume
-    - INTERPOLATION PROHIBITED: Do NOT "average", "beautify", "smooth", "westernize/easternize", or stylize the face. The model's micro-asymmetries and imperfections MUST be preserved verbatim — they are part of the identity.
-    - NO NEW FACE: Generating a different person, a different ethnicity, or a different age is a hard failure.
-    - CONSISTENCY ACROSS VARIATIONS: Both generated images MUST show the SAME EXACT PERSON.`;
-        } else {
-          faceRuleText = `
-    [RULE 3: TARGET FACE LOCK — #1 ABSOLUTE NON-NEGOTIABLE PRIORITY]
-    - SOURCE OF TRUTH: Image ${b.outfitIdx} (Target Subject). The face shown there is the SINGLE SOURCE OF TRUTH for the model's identity.
-    - 100% IDENTITY MATCH REQUIRED whenever the face is visible at any size in the frame.
-    - NO NEW FACE: Generating a different person, ethnicity, or age is a hard failure.
-    - CONSISTENCY ACROSS VARIATIONS: Both generated images MUST show the SAME EXACT PERSON.`;
-        }
-        if (b.detailRange) clothesRuleText += `\n    - TEXTURE LOCK: Use Image ${b.detailRange} (Detail Images) to perfectly replicate the fabric weave and stitching of the outfit.`;
+    [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
+    - SOURCE: Image 1 (Target Subject)
+    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact facial features and identity shown in Image 1.
+    - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
       }
 
       let photoStyleDesc = "";
@@ -1282,36 +1121,6 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       const parts = [
         { text: `
     TASK: High-End Fashion Lookbook Generation with ABSOLUTE PILLAR LOCKING.
-
-    =========================================
-    #1 ABSOLUTE NON-NEGOTIABLE PRIORITIES (override everything else)
-    =========================================
-    PRIORITY A — FACIAL IDENTITY PRESERVATION:
-      The model's face must be 100% IDENTICAL to the source face image, with no "drift", "averaging", "beautifying", or stylization. Eye shape / nose / lips / jawline / skin tone / hairline / micro-features (freckles, moles, scars) must all be preserved verbatim. If the face wobbles or changes between the 4 variations, the entire output is a failure. See RULE 3 for the full identity lock spec.
-
-    PRIORITY B — HYPER-REALISTIC PHOTOREALISM (NOT AI-LOOKING):
-      The output MUST read as a high-resolution real photograph — NOT digital art, NOT AI render, NOT illustration, NOT CGI.
-      - Crisp focus on the subject; sharp eyes (catchlights visible); naturally rendered skin pores, peach fuzz, micro-pigmentation, and subtle subsurface scattering
-      - Natural film grain and organic color rendering at high resolution; NO plastic skin, NO over-smoothing, NO waxy highlights, NO uncanny symmetry
-      - Authentic lens characteristics: realistic depth of field, natural bokeh, accurate light fall-off, lens flare/aberration ONLY where physically appropriate
-      - Fabric must show real macro-level weave/knit/grain with believable thread tension, NOT melted or smoothed surfaces
-      - Avoid all "AI tells": symmetrical earrings that don't match, fingers fused or with wrong counts, floating jewelry, broken text, melted seams, glitched logos
-      - Resolution & quality: ultra-sharp 4K-equivalent detail end-to-end, with no soft/blurry passes on the face
-
-    PRIORITY C — FACE-SIZE GUARANTEE (prevents identity drift in distant shots):
-      The face MUST always occupy enough pixels to render identity correctly. If the requested framing would shrink the face below ~6% of the frame height (i.e. tiny in the distance), tighten the camera so the face area is sufficient. NEVER place the model so far away that the face becomes a smudge of pixels — pull the camera in until the face has detail. This rule overrides camera-distance instructions in any single variation.
-
-    PRIORITY D — 2-IMAGE SCENE CONSISTENCY (HARD ENVIRONMENTAL LOCK):
-      Both generated images MUST look like they were shot in the SAME continuous photo session, in the SAME location, at the SAME moment in time. The following MUST be MATHEMATICALLY IDENTICAL across both outputs:
-      - LOCATION & BACKGROUND: same room/scene/landscape, same wall textures, same furniture & props (no new objects appear or disappear)
-      - LIGHTING SETUP & SHADOWS: same key/fill/rim light directions, intensities, color temperature, softness. Shadows shift only because the subject's pose moved.
-      - TIME-OF-DAY & ATMOSPHERE: same sun/window position, same haze/dust/weather, same ambient color cast.
-      - COLOR GRADING: same white balance, exposure, contrast, saturation, film grain.
-      - WARDROBE & STYLING: same outfit, hair, makeup, accessories in both frames.
-
-      POSE & EXPRESSION VARIETY (BETWEEN THE 2 VARIATIONS):
-      Within the locked framing assigned by the button (full body OR focus), the 2 variations must show clearly different poses and expressions — different weight distribution, different arm/hand placement, different head tilt and gaze, different micro-expression. Two variations sharing essentially the same pose or the same expression is a hard failure.
-      CONSTRAINT — OUTFIT VISIBILITY: every pose MUST still showcase the outfit cleanly. Do NOT obscure the main garment with extreme contortions, do NOT cover key details with hands.
 
     ${inputImagesText}
 
@@ -1329,73 +1138,117 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     ${photoStyleDesc}
 
     ${HIGH_END_STYLE_PROMPT}
-        ` }
+        ` },
+        { inlineData: { mimeType: "image/jpeg", data: compTarget.split(',')[1] } }, // Target Body First
+        { inlineData: { mimeType: "image/jpeg", data: compRef.split(',')[1] } }     // Reference Style Second
       ];
 
-      // Add images in the exact order documented in inputImagesText.
-      if (isMulti) {
-        // Multi-model: per-model(outfit + faces + details), then reference last
+      for (const detailImg of productDetailImages) {
+          const compDetail = await compressImage(detailImg, 1024, 0.8);
+          parts.push({ inlineData: { mimeType: "image/jpeg", data: compDetail.split(',')[1] } });
+      }
+
+      for (const faceImg of faceImages) {
+          const compFace = await compressImage(faceImg, 1024, 0.8);
+          parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
+      }
+
+      // ─── MULTI-MODEL OVERRIDE ───
+      // When 2+ models are added, rebuild the parts array with per-model assets and replace
+      // the prompt text with a reference-driven pose-template instruction. The reference
+      // image's people (counted right-to-left) are replaced by Model A, B, C in order.
+      if (isMulti && compModels) {
+        // Wipe image parts (keep only the text prompt at [0])
+        parts.length = 1;
+        // Build image-index map for the multi prompt
+        const mBlocks = [];
+        let imgI = 1;
+        compModels.forEach((cm) => {
+          const outfitIdx = imgI; imgI++;
+          const faceStart = imgI; imgI += cm.compFaces.length;
+          const detailStart = imgI; imgI += cm.compDetails.length;
+          mBlocks.push({
+            name: cm.name,
+            outfitIdx,
+            faceRange: cm.compFaces.length > 0 ? `${faceStart}${cm.compFaces.length > 1 ? `~${faceStart + cm.compFaces.length - 1}` : ''}` : null,
+            detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null
+          });
+        });
+        const refImgIdx = imgI;
+        // Push images in order: per-model (outfit + faces + details), then ref last
         for (const cm of compModels) {
           parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compTarget.split(',')[1] } });
           for (const f of cm.compFaces) parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } });
           for (const d of cm.compDetails) parts.push({ inlineData: { mimeType: 'image/jpeg', data: d.split(',')[1] } });
         }
         parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
-      } else {
-        // Single-model legacy order: target → ref → details → faces (faces at end for identity bookend)
-        const cm = compModels[0];
-        parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compTarget.split(',')[1] } });
-        parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
-        for (const d of cm.compDetails) parts.push({ inlineData: { mimeType: 'image/jpeg', data: d.split(',')[1] } });
-        for (const f of cm.compFaces) parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } });
+        // Build multi-model prompt text and replace parts[0]
+        const mapping = mBlocks.map((b, i) => {
+          const ord = i === 0 ? '1st from RIGHT' : i === 1 ? '2nd from RIGHT' : '3rd from RIGHT';
+          return `    - The ${ord} person in the reference (Image ${refImgIdx}) → REPLACE with ${b.name}. Face from Image ${b.faceRange || b.outfitIdx}; outfit from Image ${b.outfitIdx}${b.detailRange ? `; fabric texture from Image ${b.detailRange}` : ''}. Keep that reference person's EXACT pose, body angle, head direction, gaze, gesture, hand placement, and position.`;
+        }).join('\n');
+        parts[0] = { text: `
+    TASK: Multi-Model Campaign Lookbook — REFERENCE IMAGE IS THE POSE / COMPOSITION TEMPLATE.
+
+    The Reference Image (Image ${refImgIdx}) contains ${models.length}+ people. From right to left, REPLACE each person with the corresponding model below. The replaced person inherits the original reference person's pose, position, and gesture; only their face & outfit are swapped to the model's uploads.
+
+${mapping}
+
+    INHERIT FROM REFERENCE (per replaced person):
+    - Body pose, posture, body orientation, head tilt, gaze direction, arm/hand placement, leg position
+    - Spatial position in the frame, distance from the other people
+    - Background, lighting, color grade, atmosphere
+
+    OVERRIDE FROM EACH MODEL'S OWN IMAGES:
+    - Face / identity / skin tone / hair (from face references)
+    - Outfit / clothing / accessories (from outfit image)
+    - Fabric micro-texture (from detail cuts when present)
+
+    PROHIBITED: NEVER swap which model goes into which position. NEVER mix outfits or faces between models. NEVER bring the original reference people's faces or clothes into the output. The reference is a pose blueprint; the models supply the identities and clothes.
+
+    User's creative direction:
+    ${prompt}
+
+    ${HIGH_END_STYLE_PROMPT}
+        ` };
+      }
+      // ─── END MULTI-MODEL OVERRIDE ───
+
+      let var3Desc = "Variation 3: Eye-level Close-up shot (head and shoulders) in the EXACT SAME lighting and background environment. The camera is exactly at the subject's eye level, focusing intimately on the face and upper body details.";
+      let var4Desc = "Variation 4: High-angle Close-up shot in the EXACT SAME lighting and background environment. The camera is positioned above the subject, looking down at the face and upper body, creating a dynamic perspective.";
+
+      if (targetFocus === 'lower') {
+          var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
+          var4Desc = "Variation 4: High-angle Lower body shot in the EXACT SAME lighting and background environment. The camera is positioned above the waist, looking down at the pants/skirt and legs, creating a dynamic focus on the lower garments.";
       }
 
-      // Mode-aware 2-variation set. Framing is determined by the button mode (fullbody / focus).
-      // No camera-angle or perspective gymnastics — just pose and natural moment variation
-      // within the chosen framing.
-      let lookbookVariations;
-      if (effMode === 'fullbody') {
-        if (isMulti) {
-          lookbookVariations = [
-            `CAMPAIGN GROUP SHOT — POSE A: ${models.length} people in one frame, matching the reference image's composition (right-to-left model assignment per RULE 1). Each replaced person holds the EXACT pose of the reference person they replaced — same body angle, head tilt, gaze, gesture, spatial position. Background, lighting, framing = same as reference. Only faces and outfits are swapped per the model mapping.`,
-            `CAMPAIGN GROUP SHOT — POSE B: same ${models.length}-person composition, same location, same lighting, same model-to-person mapping. Each person uses a natural micro-variation of the reference pose (slight head turn, different hand position, small body angle shift) so this reads as a different take from the same shoot. Keep each model's face and outfit IDENTICAL to Pose A.`
-          ];
-        } else {
-          lookbookVariations = [
-            "FULL BODY SHOT — POSE A: head-to-toe full body visible. Stand naturally with weight evenly distributed, arms relaxed at the sides, looking toward the camera. Background, lighting, color grade match the reference image. The MODEL's face MUST match the face reference (or the face in the target image); NEVER use the face of the person in the reference style image — the reference is for environment/mood only.",
-            "FULL BODY SHOT — POSE B: head-to-toe full body visible. Contrapposto stance (weight on one leg), ONE HAND on hip OR in pocket OR through hair (pick one naturally), with a calm relaxed expression. Background, lighting, color grade match the reference image. The MODEL's face MUST match the face reference (or the face in the target image); NEVER use the face of the person in the reference style image — the reference is for environment/mood only."
-          ];
-        }
-      } else {
-        // Focus mode — depends on targetFocus
-        if (targetFocus === 'lower') {
-          lookbookVariations = [
-            "LOWER BODY FOCUS — POSE A: frame the model from the waist down to the ankles. Camera at waist-to-thigh level, straight-on. Pants/skirt silhouette and fit are the subject. Background, lighting, color grade match the reference image. NEVER replace the model's face/identity with the person in the reference image.",
-            "LOWER BODY FOCUS — POSE B: frame the model from the waist down to the ankles. Camera at waist-to-thigh level, slight 3/4 side angle, captured mid-stride / walking motion to show natural fabric flow on the legs. Background, lighting, color grade match the reference image. NEVER replace the model's face/identity with the person in the reference image."
-          ];
-        } else {
-          // upper / default
-          lookbookVariations = [
-            "UPPER BODY FOCUS — POSE A: frame the model from the waistline up to the top of the head. The face IS in frame, sharp and identity-locked. Camera at chest-to-eye level, straight-on. Focus on neckline, shoulders, chest, sleeves. Background, lighting, color grade match the reference image. The MODEL's face MUST match the face reference — NEVER use the face of the person in the reference image.",
-            "UPPER BODY FOCUS — POSE B: frame the model from the waistline up to the top of the head. The face IS in frame, sharp and identity-locked. Camera at chest-to-eye level. Slight 3/4 side angle, different head tilt and hand position from a standard front pose, with a natural calm micro-expression. The MODEL's face MUST match the face reference — NEVER use the face of the person in the reference image."
-          ];
-        }
-      }
+      const lookbookVariations = isMulti
+        ? [
+            `Variation 1: Match the reference image's composition and people layout as closely as possible. Each of the ${models.length} replaced people holds the same pose as the original reference person they replaced. Lighting and background = same as reference.`,
+            `Variation 2: Same ${models.length}-person group, same location, same lighting, same model-to-person mapping. Natural micro-variations in each person's pose (slight head turn, different hand position) so this reads as a different take from the same shoot.`,
+            `Variation 3: Closer framing — chest-up group shot of the same ${models.length} people in the same locked scene. Same model identities and outfits.`,
+            `Variation 4: Slightly different camera angle (a few steps to the side) of the same ${models.length} people in the same scene. Same models, same outfits.`
+          ]
+        : [
+          "Variation 1: Match the EXACT framing, composition, distance, and camera angle of the Reference Style Image (Image 2). Replicate the original perspective perfectly. The lighting and background MUST be 100% identical to the reference.",
+          "Variation 2: Keep the EXACT SAME lighting, shadows, and environment from Image 2, but shift the camera position to a slightly different angle (e.g., slightly from the side) to provide a new perspective of the identical scene.",
+          var3Desc,
+          var4Desc
+      ];
 
       const promises = lookbookVariations.map((variationDesc, i) => {
           return new Promise(async (resolve, reject) => {
               try {
                   await delay(i * 1500); // API Rate Limit 방지를 위한 지연
                   const localParts = [...parts];
-                  const otherIdx = i === 0 ? 2 : 1;
-                  localParts[0] = { text: localParts[0].text + `\n\n[VARIATION ${i + 1} OF 2 — MANDATORY FRAMING]\n${variationDesc}\n\n[HARD SCENE LOCK — IDENTICAL TO THE OTHER VARIATION IN THIS BATCH]\nThis batch generates 2 images from the SAME continuous photo session. The other variation (${otherIdx}) shares the SAME location, SAME lighting, SAME shadows, SAME wardrobe, SAME color grade, SAME atmosphere. Only the pose and expression differ between the two — everything else is mathematically identical.\n\n[POSE & EXPRESSION — DIFFERENT FROM THE OTHER VARIATION]\nThe pose and facial micro-expression of this variation must be visibly different from variation ${otherIdx}. The outfit's silhouette and key details must remain readable.` };
-
-                  const { dataUrl } = await geminiGenerateImage({
-                    primaryModelId: MODEL_OPTIONS.PRO,
-                    fallbackModelId: null,
-                    apiKey: settings.apiKey || DEFAULT_API_KEY,
-                    contentsParts: localParts,
-                    aspectRatio,
+                  localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\nCRITICAL SCENE LOCK: The lighting, shadows, and background MUST remain mathematically identical to the other variations. ONLY change the camera angle or pose. Maintain a slightly unique, natural micro-expression while STRICTLY adhering to the Three Pillars.` };
+                  
+                  const { dataUrl } = await geminiGenerateImage({ 
+                    primaryModelId: MODEL_OPTIONS.PRO, 
+                    fallbackModelId: null, 
+                    apiKey: settings.apiKey || DEFAULT_API_KEY, 
+                    contentsParts: localParts, 
+                    aspectRatio, 
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
                   resolve(dataUrl);
@@ -1415,14 +1268,13 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
       setGeneratedImages(successfulImages);
       setCurrentImgIndex(0);
-
-      const modeLabel = isMulti ? `캠페인 그룹샷 (${models.length}명)` : (effMode === 'focus' ? '포커스컷' : '전신컷');
-      if (successfulImages.length < 2) {
-          showNotification(`${modeLabel} 2장 중 ${successfulImages.length}장만 생성되었습니다.`);
+      
+      if (successfulImages.length < 4) {
+          showNotification(`4장 중 ${successfulImages.length}장만 생성되었습니다.`);
       } else {
-          showNotification(`${modeLabel} 2장이 성공적으로 생성되었습니다.`);
+          showNotification("4장의 화보컷이 성공적으로 생성되었습니다.");
       }
-
+      
     } catch(e) { showNotification(String(e.message || e), 'error'); }
     finally { setIsGenerating(false); }
   };
@@ -1432,7 +1284,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-gray-50">
         <div className="max-w-7xl mx-auto w-full flex flex-col gap-4 h-full">
 
-          {/* Model tabs — only shows when adding 2+ models becomes relevant */}
+          {/* Multi-model tabs */}
           <div className="flex items-center gap-1 border-b border-black pb-2 flex-wrap">
             <span className="text-[10px] font-bold uppercase text-gray-500 mr-2">모델</span>
             {models.map((m, idx) => (
@@ -1453,7 +1305,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                 <Plus className="w-3 h-3" /> 모델 추가
               </button>
             )}
-            {models.length > 1 && (
+            {isMulti && (
               <span className="ml-auto text-[10px] font-bold uppercase text-black bg-yellow-100 border border-yellow-300 px-2 py-1">
                 캠페인 모드 · 그룹샷 {models.length}명
               </span>
@@ -1463,21 +1315,10 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
 
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span>
-              <span className="text-sm font-bold uppercase truncate flex-1">{currentReference.name}</span>
-              <button onClick={() => setShowSwapModal(true)} className="text-[11px] font-bold uppercase bg-white text-black px-3 py-1.5 border border-black hover:bg-black hover:text-white flex items-center gap-1 transition-colors shrink-0" title="레퍼런스 교체">
-                <RefreshCcw className="w-3 h-3" /> 교체
-              </button>
-            </div>
-            <div className="flex-1 border border-black bg-white p-2 relative min-h-[400px] group cursor-pointer" onClick={() => setShowSwapModal(true)}>
-              <img src={currentReference.image} className="w-full h-full object-contain" alt="Style Reference" />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-                <div className="bg-white px-4 py-2 text-xs font-bold uppercase text-black flex items-center gap-1"><RefreshCcw className="w-3 h-3" /> 클릭하여 교체</div>
-              </div>
-            </div>
+            <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span><span className="text-sm font-bold uppercase truncate">{reference.name}</span></div>
+            <div className="flex-1 border border-black bg-white p-2 relative min-h-[400px]"><img src={reference.image} className="w-full h-full object-contain" alt="Style Reference" /></div>
           </div>
-
+          
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1 mb-2">
                 <div className="flex items-center gap-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Body & Clothes)</span></div>
@@ -1501,7 +1342,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                {productDetailImages.map((img, idx) => (
                   <div key={idx} className="relative w-16 h-16 border border-gray-300 shrink-0 bg-white">
                      <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
-                     <button onClick={() => updateActiveModelFn(m => ({ ...m, productDetailImages: m.productDetailImages.filter((_, i) => i !== idx) }))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                     <button onClick={() => setProductDetailImages(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
                   </div>
                ))}
                {productDetailImages.length < 3 && (
@@ -1519,19 +1360,19 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                 <div className="flex items-center gap-2"><span className="bg-gray-800 text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Face Detail)</span></div>
                 <span className="text-[11px] text-gray-500 font-bold uppercase">이목구비 일관성을 위한 다각도 얼굴 사진 (다중 선택 가능)</span>
             </div>
-
+            
             {faceImages.length > 0 ? (
                 <div className="flex-1 flex flex-col gap-2 border-2 border-dashed border-gray-400 bg-white p-2 min-h-[400px]">
                     <div className="flex-1 w-full h-full relative border border-gray-200">
                         <img src={faceImages[0]} className="w-full h-full object-contain absolute inset-0" alt="Primary Face" />
-                        <button onClick={() => updateActiveModelFn(m => ({ ...m, faceImages: m.faceImages.slice(1) }))} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
+                        <button onClick={() => setFaceImages(prev => prev.slice(1))} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
                     </div>
                     {faceImages.length > 1 && (
                         <div className="flex gap-2 overflow-x-auto py-1 shrink-0 h-24 custom-scrollbar">
                             {faceImages.slice(1).map((img, idx) => (
                                 <div key={idx+1} className="w-20 h-full shrink-0 relative border border-gray-200">
                                     <img src={img} className="w-full h-full object-cover" alt={`Face ${idx+2}`}/>
-                                    <button onClick={() => updateActiveModelFn(m => ({ ...m, faceImages: m.faceImages.filter((_, i) => i !== idx + 1) }))} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                                    <button onClick={() => setFaceImages(prev => prev.filter((_, i) => i !== idx + 1))} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-3 h-3"/></button>
                                 </div>
                             ))}
                         </div>
@@ -1556,15 +1397,14 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
             <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
-
+          
           {generatedImages.length > 0 && (
             <div className="flex flex-col gap-4 animate-fade-in border-b-2 border-black pb-8 mb-2">
               <div className="flex items-center gap-2 mb-1"><CheckCircle2 className="w-5 h-5 text-black" /><span className="text-sm font-bold uppercase text-black">Generation Complete ({currentImgIndex + 1}/{generatedImages.length})</span></div>
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
                 <img src={generatedImages[currentImgIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
-                <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(); }} title="다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-4 h-4 text-black" /></button>
-
+                
                 {generatedImages.length > 1 && (
                   <>
                     <button onClick={(e) => { e.stopPropagation(); setCurrentImgIndex(p => Math.max(0, p - 1)); }} disabled={currentImgIndex === 0} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
@@ -1596,7 +1436,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                         {prompt ? '이목구비 고정 강화 재생성' : 'AI 프롬프트 초안 생성'}
                     </button>
                 </div>
-
+                
                 <div className="flex flex-col gap-1.5 mb-2 border p-2 bg-gray-50/50">
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-[10px] font-bold text-gray-400 w-12 shrink-0 uppercase tracking-wider">스타일</span>
@@ -1610,7 +1450,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
 
                 <textarea value={prompt || ''} onChange={(e) => setPrompt(e.target.value)} className="w-full h-32 p-3 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed" placeholder="여기에 지시사항을 입력하세요..." />
             </div>
-
+            
             <div className="flex flex-col gap-2 border-t border-dashed border-gray-300 pt-4 mt-[-8px]">
                 <span className="text-xs font-bold uppercase text-gray-500 flex items-center gap-1"><MessageSquarePlus className="w-4 h-4"/> AI Assistance</span>
                 <div className="flex gap-2">
@@ -1648,103 +1488,27 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
                     ))}
                 </div>
             </div>
-
-            {(() => {
-              const focusLabel = targetFocus === 'lower' ? '하반신' : '상반신';
-              const isMulti = models.length > 1;
-              const anyTargetMissing = models.some(m => !m.targetImage);
-              const isDisabled = isGenerating || anyTargetMissing || !prompt;
-              const wasFullBody = lastGenMode === 'fullbody' && generatedImages.length > 0;
-              const wasFocus = lastGenMode === 'focus' && generatedImages.length > 0;
-              const fullbodyLabel = isMulti ? `캠페인 그룹샷 2장 (${models.length}명)` : '전신 2장';
-              return (
-                <div className="flex flex-col gap-2 mt-2">
-                  <button onClick={() => handleGenerate('fullbody')} disabled={isDisabled} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFullBody ? 'bg-gray-800' : 'bg-black'}`}>
-                    {isGenerating && lastGenMode === 'fullbody' ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /> {fullbodyLabel} 생성 중...</>
-                    ) : wasFullBody ? (
-                      <><RefreshCcw className="w-5 h-5" /> {fullbodyLabel} 재생성</>
+              
+            <button onClick={handleGenerate} disabled={isGenerating || !targetImage || !prompt} className={`w-full text-white py-4 font-bold text-base uppercase mt-2 hover:opacity-90 disabled:opacity-50 flex flex-col items-center justify-center gap-1 ${generatedImages.length > 0 ? 'bg-gray-800' : 'bg-black'}`}>
+                {isGenerating ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> <span>{generatedImages.length > 0 ? '다시 생성 중 (4장)...' : '생성 중 (4장)...'}</span></>
+                ) : (
+                    generatedImages.length > 0 ? (
+                        <><div className="flex items-center gap-2"><RefreshCcw className="w-5 h-5 text-white" /> 다시 4장 생성하기 (REGENERATE)</div></>
                     ) : (
-                      <><Sparkles className="w-5 h-5" /> {fullbodyLabel} 자동생성</>
-                    )}
-                  </button>
-                  <button onClick={() => handleGenerate('focus')} disabled={isDisabled || isMulti} title={isMulti ? '캠페인 그룹샷에서는 포커스 모드를 사용할 수 없습니다.' : ''} className={`w-full text-white py-3 font-bold text-sm uppercase hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 ${wasFocus ? 'bg-gray-800' : 'bg-black'}`}>
-                    {isGenerating && lastGenMode === 'focus' ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /> {focusLabel} 2장 생성 중...</>
-                    ) : wasFocus ? (
-                      <><RefreshCcw className="w-5 h-5" /> {focusLabel} 2장 재생성</>
-                    ) : isMulti ? (
-                      <><Sparkles className="w-5 h-5 opacity-50" /> {focusLabel} 포커스 (다중 모델 시 비활성)</>
-                    ) : (
-                      <><Sparkles className="w-5 h-5" /> {focusLabel} 포커스 2장 자동생성</>
-                    )}
-                  </button>
-                </div>
-              );
-            })()}
+                        <><div className="flex items-center gap-2"><Sparkles className="w-5 h-5 text-white" /> 화보 4장 자동생성 (GENERATE)</div></>
+                    )
+                )}
+            </button>
           </div>
-
+          
         </div>
       </div>
       <ImageViewerModal isOpen={showZoomModal} onClose={() => setShowZoomModal(false)} imageSrc={generatedImages[currentImgIndex]} />
-
-      {showSwapModal && (
-        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4" onClick={() => setShowSwapModal(false)}>
-          <div className="bg-white w-full max-w-5xl max-h-[85vh] flex flex-col border-2 border-black shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
-            <div className="h-14 px-6 border-b border-black flex items-center justify-between shrink-0">
-              <h2 className="text-lg font-black uppercase tracking-tighter flex items-center gap-2"><RefreshCcw className="w-4 h-4" /> 스타일 베이스 교체</h2>
-              <button onClick={() => setShowSwapModal(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
-            </div>
-
-            <div className="px-6 py-3 border-b border-black flex items-center gap-4 flex-wrap shrink-0">
-              <div className="flex gap-2 flex-wrap">
-                <button onClick={() => setSwapBrandFilter('All')} className={`px-3 py-1.5 text-xs font-bold uppercase border ${swapBrandFilter === 'All' ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300'}`}>ALL</button>
-                {FIXED_BRANDS.map(b => (
-                  <button key={b} onClick={() => setSwapBrandFilter(b)} className={`px-3 py-1.5 text-xs font-bold uppercase border ${swapBrandFilter === b ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300'}`}>{b}</button>
-                ))}
-              </div>
-              <label className="ml-auto text-xs font-bold uppercase bg-white text-black px-3 py-1.5 border border-black hover:bg-black hover:text-white cursor-pointer flex items-center gap-1 transition-colors">
-                <UploadCloud className="w-3 h-3" /> 새 이미지 업로드
-                <input type="file" className="hidden" accept="image/*" onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const r = new FileReader();
-                  r.onload = async () => {
-                    try {
-                      const img = await compressImage(r.result, 1024, 0.8);
-                      setCurrentReference({ id: `tmp-${Date.now()}`, name: file.name.replace(/\.[^/.]+$/, '').toUpperCase(), image: img, brand: currentReference?.brand || 'EZ' });
-                      setShowSwapModal(false);
-                      showNotification("새 레퍼런스 이미지로 교체되었습니다. (임시 — 저장되지 않음)");
-                    } catch { /* ignore */ }
-                  };
-                  r.readAsDataURL(file);
-                  e.target.value = '';
-                }} />
-              </label>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-2">
-                {references.filter(r => swapBrandFilter === 'All' || r.brand === swapBrandFilter).map(r => (
-                  <div key={r.id} onClick={() => { setCurrentReference(r); setShowSwapModal(false); showNotification("스타일 베이스가 교체되었습니다."); }} className={`aspect-[3/4] border cursor-pointer relative group overflow-hidden ${currentReference?.id === r.id ? 'border-black ring-2 ring-black' : 'border-gray-300 hover:border-black'}`}>
-                    <img src={r.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform" alt={r.name} loading="lazy" />
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/80 text-white text-[9px] font-bold text-center py-0.5">{r.brand}</div>
-                    {currentReference?.id === r.id && (
-                      <div className="absolute top-1 right-1 bg-black text-white text-[9px] font-bold px-1.5 py-0.5 uppercase">현재</div>
-                    )}
-                  </div>
-                ))}
-                {references.filter(r => swapBrandFilter === 'All' || r.brand === swapBrandFilter).length === 0 && (
-                  <div className="col-span-full text-center py-10 text-gray-400 font-bold text-sm uppercase">해당 브랜드에 등록된 레퍼런스가 없습니다.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
+
 
 // ============================================================
 // VideoStudioGenerator — standalone 영상 탭
@@ -2089,8 +1853,8 @@ const VideoStudioGenerator = ({ settings, showNotification, seedImages, clearSee
   );
 };
 
-const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
-  const [faceImages, setFaceImages] = useState([]); // 최대 3장 (다각도)
+const FittingRoomGenerator = ({ settings, showNotification }) => {
+  const [faceImage, setFaceImage] = useState(null);
   const [bodyImage, setBodyImage] = useState(null);
   const [items, setItems] = useState([
     { id: 1, type: 'OUTER', image: null, label: '아우터 (Outer)' },
@@ -2101,23 +1865,20 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
   const [mainItemId, setMainItemId] = useState(1);
   const [mainItemDetails, setMainItemDetails] = useState([]);
   const [fittingPrompt, setFittingPrompt] = useState('');
-  const [bgTone, setBgTone] = useState('bright');
+  const [bgTone, setBgTone] = useState('bright'); 
   const [customBgImage, setCustomBgImage] = useState(null);
   const [generatedFits, setGeneratedFits] = useState([]);
-  const [lastGenMode, setLastGenMode] = useState(null); // 'fullbody' | 'focus' | null
   const [currentFitIndex, setCurrentFitIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showZoomModal, setShowZoomModal] = useState(false);
 
   const fittingSnippets = [
       "Full Body이미지와 배경색,조명 동일하게",
-      "바지는 매우 길고 와이드해서 신발 위에 주름이 약간 잡혀있다.",
-      "매우 루즈한 오버핏 연출",
-      "드롭숄더",
-      "극도의 오버핏",
-      "벌룬 배럴핏",
-      "한 손은 바지 주머니에 자연스럽게 넣고, 다른 손은 옆에 편하게 내려둔 자세 (어깨 힘 빼고 자연스러운 무게중심)",
-      ...MODEL_PROFILES.map(p => p.token)
+      "바지는 매우 길고 와이드해서 신발 위에 주름이 약간 잡혀있다.", 
+      "매우 루즈한 오버핏 연출", 
+      "드롭숄더", 
+      "극도의 오버핏", 
+      "벌룬 배럴핏"
   ];
 
   const handleImageUpload = async (file, type, id = null) => {
@@ -2125,11 +1886,8 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
     const r = new FileReader();
     r.onload = async () => {
       try {
-        // Face images get higher-quality compression (more pixels = stronger identity lock).
-        const img = type === 'face'
-          ? await compressImage(r.result, 1280, 0.95)
-          : await compressImage(r.result, 1024, 0.8);
-        if (type === 'face') setFaceImages(prev => prev.length < 3 ? [...prev, img] : prev);
+        const img = await compressImage(r.result, 1024, 0.8);
+        if (type === 'face') setFaceImage(img);
         else if (type === 'body') setBodyImage(img);
         else if (type === 'item' && id) {
           setItems(prev => prev.map(item => item.id === id ? { ...item, image: img } : item));
@@ -2138,26 +1896,6 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
       } catch { /* ignore */ }
     };
     r.readAsDataURL(file);
-  };
-
-  const handleFaceUpload = async (files) => {
-    if (!files || files.length === 0) return;
-    const available = 3 - faceImages.length;
-    if (available <= 0) return showNotification("얼굴 사진은 최대 3장까지 업로드 가능합니다.", "error");
-    Array.from(files).slice(0, available).forEach(file => {
-      const r = new FileReader();
-      r.onload = async () => {
-        try {
-          const img = await compressImage(r.result, 1280, 0.95);
-          setFaceImages(prev => prev.length < 3 ? [...prev, img] : prev);
-        } catch { /* ignore */ }
-      };
-      r.readAsDataURL(file);
-    });
-  };
-
-  const removeFaceAt = (idx) => {
-    setFaceImages(prev => prev.filter((_, i) => i !== idx));
   };
 
   const addItemSlot = () => {
@@ -2201,9 +1939,8 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
     document.body.removeChild(link);
   };
 
-  const handleGenerateFit = async (mode = 'fullbody') => {
-    // mode: 'fullbody' (variations 1·2 only) | 'focus' (variations 3·4 only)
-    if (faceImages.length === 0 || !bodyImage) return showNotification("모델의 얼굴(1~3장)과 전신 사진은 필수입니다.", "error");
+  const handleGenerateFit = async () => {
+    if (!faceImage || !bodyImage) return showNotification("모델의 얼굴과 전신 사진은 필수입니다.", "error");
     const activeItems = items.filter(i => i.image);
     if (activeItems.length === 0) return showNotification("적어도 하나 이상의 아이템을 등록해주세요.", "error");
     if (bgTone === 'custom' && !customBgImage) return showNotification("커스텀 배경 이미지를 업로드해주세요.", "error");
@@ -2211,20 +1948,9 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
     setIsGenerating(true);
     setGeneratedFits([]);
     setCurrentFitIndex(0);
-    setLastGenMode(mode);
 
     try {
-      // Face images are kept at high quality (1280 @ 0.95) for maximum identity preservation.
-      // Expand any model-profile tokens (e.g. 서준) embedded in fittingPrompt — the tokens
-      // are stripped from the visible director's notes and the corresponding lock text
-      // is injected at the top of the prompt as a high-priority identity rule.
-      const { cleanText: cleanFittingPrompt, activeProfiles } = expandModelProfileTokens(fittingPrompt || '');
-      const profileLockBlock = activeProfiles.length > 0
-        ? `\n\n=========================================\n#1A — ACTIVE MODEL PROFILES (HARD IDENTITY LOCKS)\n=========================================\n${activeProfiles.map(p => p.lockText).join('\n\n---\n\n')}\n=========================================\n`
-        : '';
-
-      const compFaces = await Promise.all(faceImages.map(f => compressImage(f, 1280, 0.95)));
-      const compPrimaryFace = compFaces[0]; // bookend reference
+      const compFace = await compressImage(faceImage, 1024, 0.8);
       const compBody = await compressImage(bodyImage, 1024, 0.8);
       const compItems = await Promise.all(activeItems.map(async (item) => ({
         ...item,
@@ -2239,13 +1965,13 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
           bgToneDesc = "Place the model in the EXACT environment and background shown in the LAST provided image [Background Image]. STRICTLY MAINTAIN the original color, tone, and details of this background image. Do not alter its hue or brightness.";
           customBgInstruction = "\n* [Background Image]: The LAST image provided is the target background. You MUST composite the model onto this exact background without changing the background's original colors.";
       } else if (bgTone === 'bright') {
-          bgToneDesc = "Pure CLEAN white studio seamless backdrop (#FFFFFF), like a perfectly lit cyclorama. ABSOLUTELY NO atmospheric particles — no dust, no floating motes, no haze, no fog, no smoke. ABSOLUTELY NO light artifacts — no bokeh, no light orbs, no lens flare, no light leaks, no gradient glow, no color cast, no vignette. The background MUST be a perfectly uniform, completely flat white field with ZERO texture, ZERO grain, and ZERO ambient noise. High-key lighting, very bright and clean. STRICTLY MAINTAIN SOLID UNIFORM PURE WHITE.";
+          bgToneDesc = "Pure white studio seamless backdrop. High-key lighting, very bright and clean. STRICTLY MAINTAIN SOLID WHITE.";
       } else if (bgTone === 'mid') {
           bgToneDesc = "Light neutral grey studio seamless backdrop. Balanced mid-tone background. STRICTLY MAINTAIN SOLID LIGHT GREY.";
       } else if (bgTone === 'dark') {
           bgToneDesc = "Medium grey studio seamless backdrop. Slightly moody and deep, but NOT pitch black. STRICTLY MAINTAIN SOLID MEDIUM GREY.";
       }
-
+      
       let lightDesc = "Clean studio natural light with both main and bounce/fill lights evenly distributed. Soft, and clear illumination across the whole model. LIGHTING ANGLE AND INTENSITY ARE LOCKED.";
 
       let detailDesc = "";
@@ -2257,29 +1983,21 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
       }
 
       const mainItem = items.find(i => i.id === mainItemId);
-      const mainType = mainItem?.type || 'TOP';
-      const mainLabel = mainItem?.label || 'Main Item';
-
-      let focus3 = "", focus4 = "";
-      if (mainType === 'BOTTOM') {
-          focus3 = `MANDATORY FRAMING — LOWER BODY MEDIUM SHOT: The frame MUST start exactly at the waistline and end at the ankles. Do NOT show the head, do NOT show the chest, do NOT show the full body. The waistline is the TOP edge of the frame; the ankles/floor are the BOTTOM edge. Camera is straight-on at waist-to-thigh level. Focus explicitly on the pants/skirt silhouette, drape, and fit of the Main Item (${mainLabel}). The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE — do NOT widen to full body, do NOT crop tighter.`;
-          focus4 = `MANDATORY FRAMING — LOWER BODY MEDIUM SHOT (3/4 side): Same lower-body framing as Variation 3 (waist to ankles, NOT full body, NOT closer than the waist), but from a slight 3/4 side angle (about 25-30 degrees off-axis). Show the side silhouette, fabric drape, and fit of the Main Item (${mainLabel}). Camera at waist level. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
-      } else if (mainType === 'SHOES') {
-          focus3 = `MANDATORY FRAMING — FEET & LOWER LEG CLOSE-UP: The frame MUST start at mid-shin and end at the floor. Do NOT show the upper body, do NOT show the full body. The shoes (Main Item: ${mainLabel}) are the clear subject. Camera at floor level, straight frontal angle. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
-          focus4 = `MANDATORY FRAMING — FEET CLOSE-UP (3/4 angle): Same feet-and-lower-leg framing as Variation 3 (mid-shin to floor, NOT wider), from a slight 3/4 angle with one foot slightly forward (or mid-stride). The shoes (Main Item: ${mainLabel}) must remain the subject. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
-      } else {
-          // OUTER, TOP, ACC, etc. → upper body focus
-          focus3 = `MANDATORY FRAMING — UPPER BODY MEDIUM SHOT (waist-up): The frame MUST start exactly at the waistline and end at the top of the head. Do NOT show the hips, do NOT show the legs, do NOT show the full body. The waistline is the BOTTOM edge of the frame; the top of the head is the TOP edge. The face IS in frame, sharp and identity-locked. Camera is straight-on at chest-to-eye level. Focus explicitly on the neckline, shoulders, chest, sleeves, and upper body silhouette of the Main Item (${mainLabel}). The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE — do NOT widen to full body, do NOT crop to a head-and-shoulders close-up.`;
-          focus4 = `MANDATORY FRAMING — UPPER BODY MEDIUM SHOT (waist-up, 3/4 side): Same waist-up framing as Variation 3 (waistline at bottom, top of head at top, NOT full body, NOT head-and-shoulders), but from a slight 3/4 side angle (about 25-30 degrees off-axis). The face is partially visible in profile, sharp and identity-locked. Focus on the side silhouette, sleeve drape, and how the Main Item (${mainLabel}) falls on the upper body. The lighting, shadows, and studio background MUST remain exactly the same. THIS FRAMING IS NON-NEGOTIABLE.`;
+      let closeUpFocus = "Upper body close-up (waist up, maintaining the face visibility)";
+      if (mainItem) {
+          if (mainItem.type === 'BOTTOM') {
+              closeUpFocus = "Lower body close-up (waist down to ankles, explicitly focusing on the pants/skirt)";
+          } else if (mainItem.type === 'SHOES') {
+              closeUpFocus = "Extreme close-up on the feet and lower legs (focusing explicitly on the shoes)";
+          }
       }
 
-      const fullBodyVariations = [
-          "MANDATORY FRAMING — FULL BODY SHOT (Variation 1 of 2): The frame MUST start at the top of the head and end below the feet (the entire body from head to toe is visible, with a small margin above the head and below the feet). This is NOT a medium shot, NOT a waist-up crop. Pose A — Standard Front Pose: face completely straight forward at the camera in a CONFIDENT UPRIGHT STANCE — weight evenly on both feet, arms RELAXED at the sides, shoulders open, chin level, NEUTRAL CALM EXPRESSION. The full outfit silhouette must be clearly visible and unobstructed. The lighting, shadows, and studio background MUST remain exactly the same. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE.",
-          "MANDATORY FRAMING — FULL BODY SHOT (Variation 2 of 2): Same FULL BODY framing as Variation 1 (head to toe visible, NOT a medium shot). Pose B — still front-facing the camera but with a SUBSTANTIALLY DIFFERENT pose from Pose A: shift weight strongly to one leg (contrapposto), and place ONE HAND on the hip OR through the hair OR into a pants pocket (pick one naturally and effortlessly). The head and face ANGLE must be visibly different from Pose A (e.g. a slight head tilt, a small chin lift or drop, or a subtle head turn slightly off-axis). CRITICAL — KEEP THE SAME FACIAL EXPRESSION as Pose A: the expression itself does NOT change between Pose A and Pose B. Only the body posture, hand placement, and head/face ANGLE differ. This must look like a distinctly different photo moment from the same session, NOT a near-duplicate. THIS FULL-BODY FRAMING IS NON-NEGOTIABLE."
+      const poseVariations = [
+          "Change the model's pose to face completely straight forward towards the camera (Front View 1). The lighting, shadows, and studio background MUST remain exactly the same.",
+          "Change the model's pose to face completely straight forward towards the camera, with a slightly different natural relaxed stance (Front View 2). The lighting, shadows, and studio background MUST remain exactly the same.",
+          "Change the model's pose to turn their body to their right side by exactly 10 degrees. The lighting, shadows, and studio background MUST remain exactly the same.",
+          `Change the camera framing to a ${closeUpFocus} to prominently highlight the Main Item (${mainItem?.label || 'Main Item'}). Strike a natural, dynamic free pose suitable for this close-up. The lighting, shadows, and studio background MUST remain exactly the same.`
       ];
-      const focusVariations = [focus3, focus4];
-
-      const poseVariations = mode === 'focus' ? focusVariations : fullBodyVariations;
 
       const promises = poseVariations.map((poseDesc, i) => {
           return new Promise(async (resolve, reject) => {
@@ -2289,146 +2007,49 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
                   const baseParts = [
                     { text: `
                       TASK: High-Fidelity Virtual Try-On & Identity Compositing with **ABSOLUTE SUBJECT PRESERVATION**.
-
-                      =========================================
-                      #0 OUTPUT FORMAT — SINGLE FRAME ONLY (HARD FAILURE IF VIOLATED)
-                      =========================================
-                      Return EXACTLY ONE single full-frame photograph that fills the entire output canvas.
-                      ABSOLUTELY FORBIDDEN (each is an immediate hard failure):
-                      - 2x2 grid, 2x1 / 1x2 split, 4-panel collage, contact sheet, or any multi-panel layout
-                      - Diptych, triptych, side-by-side comparison, before/after split
-                      - Multiple thumbnails, film strip, photo strip, or mosaic
-                      - Picture-in-picture, inset frame, overlay sub-image
-                      - "Behind the scenes" composite or mood board layout
-                      This API call produces ONE composed photograph showing ONE pose. There are 2 variations in this batch, generated as 2 SEPARATE API calls — never combine them into one image.
-
-                      =========================================
-                      #0.5 PRIORITY HIERARCHY (apply in this exact order; higher P overrides lower when they conflict)
-                      =========================================
-                      P1 (highest): MODEL FACE IDENTITY — race, skin tone, eye/nose/lip shape, jawline, all facial markers must match the uploaded face references verbatim. See PRIORITY 1 and RULE 1 for full details.
-                      P2: MAIN ITEM DETAILS — the main wardrobe item's exact fabric texture, color, prints, labels, trims, and silhouette must match its source image pixel-for-pixel. See RULE 1-C and RULE 4 for full details.
-                      P3: VARIATION FRAMING — this batch contains 2 variations, both ${mode === 'focus' ? 'MEDIUM SHOTS focused on the main item region (upper-body waist-up for OUTER/TOP/ACC main items, lower-body waist-down for BOTTOM main items, feet close-up for SHOES main items)' : 'MANDATORY FULL-BODY shots (head to toe visible, NOT medium shots)'}. Read the variation-specific MANDATORY FRAMING instruction at the bottom — it is non-negotiable.
-                      P4: 2-IMAGE CONSISTENCY — same location / lighting / shadows / color grade / wardrobe across BOTH outputs in this batch; only camera position and pose vary.
-                      P5: POSE & EXPRESSION VARIETY — substantially different poses across the 2 variations, but never at the cost of P1, P2, or P3.
-
-                      ROLE: You are an expert Image Compositor. You COMBINE the face from the FACE IMAGES (provided as Image [1] AND repeated as the LAST inputs for emphasis) with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+]. There ${faceImages.length > 1 ? `are ${faceImages.length} face reference images covering different angles` : 'is one face reference image'} — they ALL represent the SAME person and ALL must be used to lock identity.
+                      
+                      ROLE: You are an expert Image Compositor. You COMBINE the face from Image [1] with the body from Image [2] to create ONE UNIFIED MODEL, then dress that model in the wardrobe from Images [3+].
                       ${customBgInstruction}
                       ${detailInputText}
 
-                      =========================================
-                      PRIORITY C — FACE-SIZE GUARANTEE (prevents identity drift in distant shots)
-                      =========================================
-                      The face MUST always occupy enough pixels for identity to be readable. In any framing — even full-body shots — the face area MUST be at least ~6-8% of the frame height (a normal full-body fashion shot, not a tiny figure in a landscape). If a requested framing would shrink the face below that threshold, tighten the camera until the face has sufficient detail. NEVER place the model so far away that the face becomes a smudge. The face size guarantee overrides framing distance instructions when they conflict.
-
-                      =========================================
-                      #1 ABSOLUTE NON-NEGOTIABLE PRIORITY — IDENTITY PRESERVATION
-                      =========================================
-                      The single most important requirement, overriding everything else: the person in both generated images MUST be the EXACT SAME PERSON shown in [Image 1] (face) and [Image 2] (body). NEVER generate a new person, a different person, a "similar-looking" person, an "averaged" person, or a "stylized" person. Any drift in identity is an immediate HARD FAILURE. If you cannot preserve the identity, refuse to generate rather than produce a substitute.
-
-                      Identity markers that MUST be carried over verbatim (no exceptions):
-                      - ETHNICITY / RACE: the model's exact ethnicity is FIXED to what is shown in Image [1] and Image [2]. NEVER change Asian to Caucasian, NEVER change Black to mixed, NEVER drift toward a "default" western/eastern face. Race/ethnicity is locked.
-                      - SKIN TONE & UNDERTONE: copy the exact skin hue, value, and undertone (warm/cool/neutral) from the source images. NEVER lighten, NEVER darken, NEVER beautify the skin. Match the precise skin color including any tan lines, redness, blemishes, or pigmentation visible in the source.
-                      - AGE: preserve the apparent age exactly. NEVER make the model younger or older.
-                      - GENDER PRESENTATION: preserve exactly as shown.
-                      - FACIAL FEATURES: eye shape and spacing, eyelid fold (monolid / double / hooded), iris color, eyebrow shape and density, nose bridge / nostril / nose tip, lip shape and fullness, philtrum, mouth corner angle, jawline angle, chin shape, cheekbone height, ear shape — all copied verbatim.
-                      - SKIN MARKERS: every freckle, mole, birthmark, scar, dimple, beauty mark MUST be preserved at its exact position. These are identity-defining.
-                      - HAIR: exact hair color, texture (straight/wavy/curly/coily), density, hairline, parting, hairstyle volume, length — all preserved.
-                      - BODY: height ratio, shoulder width, limb length, body type (slim/athletic/curvy/etc.), hand size, foot size, posture — all from Image [2].
-                      - VISIBLE SKIN ANYWHERE: arms, hands, neck, chest, legs (whatever is exposed by the outfit) MUST share the same skin tone as the face. NEVER let visible skin drift to a different color than the face.
-
-                      PROHIBITIONS (each is a hard failure):
-                      - Generating a "similar but different" person
-                      - "Averaging" facial features toward a generic look
-                      - "Beautifying" or removing skin markings/imperfections
-                      - Shifting ethnicity even slightly (e.g. making the eyes look more Western, or the nose look more European, etc.)
-                      - Lightening or smoothing the skin tone
-                      - Generating different people across the variations in this batch (both MUST be the SAME person)
-
-                      =========================================
-
                       RULE 1: FACIAL IDENTITY LOCK (100% Match Required - 최우선 순위: 이목구비 완벽 보존)
-                      - SOURCE OF TRUTH: Image [1] — face. This is the SINGLE source of truth for facial identity.
-                      - The generated model's face MUST be 100% identical to Image [1] in every micro-proportion, marker, and structural feature listed in the IDENTITY PRESERVATION block above.
-                      - Result MUST be the EXACT SAME PERSON across both variations in this batch.
-                      - **CRITICAL: EVEN IF THE BODY POSE, CAMERA ANGLE, OR DIRECTION CHANGES, THE FACIAL IDENTITY (and especially ethnicity + skin tone) MUST REMAIN 100% LOCKED AND IDENTICAL TO IMAGE [1] whenever the face is visible at any size in the frame.**
-                      - NO INTERPOLATION: do not "average", "smooth", "beautify", or "stylize" the face. Preserve micro-asymmetries, blemishes, and natural imperfections verbatim — they are part of the identity.
-
-                      RULE 1-B: BODY & SKIN-TONE LOCK (extends RULE 1 to all visible skin)
-                      - SOURCE OF TRUTH: Image [2] — body.
-                      - The body's height, build, posture, and skin tone (on every visible patch — arms, hands, neck, decolletage, legs, ankles, feet) MUST match Image [2] exactly.
-                      - The face skin tone (Image 1) and the body skin tone (Image 2) MUST be reconciled to the SAME unified skin color across the entire model — never let the face be one tone and the exposed arms/legs another.
-
-                      RULE 1-C: WARDROBE ITEM LOCK (입력된 의상 그대로 보존 — HIGHEST PRIORITY)
-                      - SOURCE OF TRUTH: each wardrobe input image (Images [3+]) is the SINGLE source of truth for that garment. The final image MUST render each garment exactly as shown in its source.
-                      - PRESERVE VERBATIM for every garment:
-                        * EXACT silhouette and cut (sleeve length, hem length, neckline shape, lapel/collar shape, pant rise/leg width/inseam, skirt length)
-                        * EXACT color and color distribution (no recoloring, no saturation shift, no hue drift)
-                        * EXACT print, pattern, graphic, embroidery, patch (copy raster-exact, do NOT redraw or simplify)
-                        * EXACT fabric texture and weave (knit/woven/leather/denim/etc. — match the source)
-                        * EXACT trims and hardware (buttons, zippers, snaps, rivets, eyelets, drawstrings, belts) — same count, same placement, same material
-                        * EXACT logos, labels, brand text — pixel-faithful
-                        * EXACT proportions of the garment relative to the body
-                      - ANTI-RESTYLE: do NOT "redesign", "reinterpret", "modernize", "simplify", "ornament", or "improve" any garment. The input wardrobe is final.
-                      - DRAPE-ONLY VARIATION: across the 2 variations in this batch, the garments themselves are 100% identical. The ONLY thing that changes per variation is HOW THE FABRIC NATURALLY DRAPES on the body due to the new pose (e.g. a hanging sleeve folds slightly differently when an arm moves) — but the garment itself, its color, length, cut, prints, trims are pixel-locked.
-                      - PROHIBITION: NEVER substitute a garment for a "similar" one, NEVER change a top's neckline, NEVER alter pant length/leg width, NEVER add or remove buttons/pockets/details, NEVER recolor, NEVER swap fabric type. Any drift from the source garment is a HARD FAILURE.
+                      - The generated model's face MUST accurately match the exact micro-proportions and identity of the Face in Image [1]. Do not alter the eye shape, nose structure, or lips.
+                      - Result MUST be the EXACT SAME PERSON.
+                      - **CRITICAL: EVEN IF THE BODY POSE OR DIRECTION IS CHANGED, THE FACIAL IDENTITY MUST REMAIN 100% COMPLETELY LOCKED AND IDENTICAL TO IMAGE [1] (if the face is visible in the frame).**
 
                       RULE 2: POSE, FRAMING & PROPORTION (ISOLATED CHANGE)
                       - ${poseDesc}
                       - ABSOLUTE PROPORTION LOCK: The model's physical dimensions (overall height, shoulder width, limb length, body ratio) MUST perfectly match [Image 2]. Never distort, stretch, or shrink the body.
-                      - CRITICAL ISOLATION: When applying the new pose, ONLY the body posture / arm-and-leg placement / head angle / facial expression should change. THE WARDROBE ITEMS THEMSELVES (their color, cut, length, prints, trims, and silhouette) STAY 100% LOCKED to the source images per RULE 1-C — only how the existing fabric naturally drapes/folds on the new pose may shift.
-                      - The background, lighting direction, shadow intensity, and studio environment ALSO remain 100% locked and identical (per RULE 3).
+                      - CRITICAL ISOLATION: ONLY change the pose/framing. The background, lighting direction, shadow intensity, and studio environment MUST remain 100% locked and identical.
 
                       RULE 3: STUDIO BACKGROUND & LIGHTING (ABSOLUTE ENVIRONMENTAL LOCK)
                       - ${bgToneDesc}
                       - ${lightDesc}
-                      - 2-IMAGE HARD CONSISTENCY LOCK: This is one of 2 fitting images generated in the current batch from the SAME continuous studio session. Treat both as captured back-to-back from a single fixed light setup — only the photographer's camera position and the model's pose change, NOTHING else.
-                        The following MUST be MATHEMATICALLY IDENTICAL across BOTH outputs:
-                        * Background color, brightness, texture, and tone — pixel-locked
-                        * Key light direction, intensity, color temperature (Kelvin), softness
-                        * Fill light, rim light, bounce light positions and intensities — fixed
-                        * Shadow direction, softness, and density (shadows shift only because the body moved, never because the lights moved)
-                        * White balance, exposure, contrast, saturation, color grade
-                        * Camera lens character, depth of field, sensor look
-                        * The model's outfit (every garment from Images [3+] per RULE 1-C), hair, makeup, accessories — IDENTICAL in both images. Garment color, cut, length, prints, trims, and fabric do NOT change between variations; only natural fabric drape responds to the new pose.
-                      - CAMERA POSITION — MUST BE VISIBLY DIFFERENT BETWEEN THE 2 IMAGES IN THIS BATCH: the photographer's physical position (distance, height, horizontal/vertical angle relative to the model and the locked studio environment) must clearly differ across the 2 variations. Never duplicate the same camera placement. The lights/backdrop are locked; the photographer moves.
-                      - POSE & EXPRESSION — SUBSTANTIALLY DIFFERENT IN EACH OF THE 4 IMAGES (NOT subtle micro-variations): each variation must show a distinctly different body posture, weight distribution, arm/hand placement, head tilt, gaze direction, AND facial expression. Two variations sharing essentially the same pose or expression is a hard failure. HOWEVER — pose variety NEVER overrides the MANDATORY FRAMING specified by the per-variation instruction. If this variation specifies "waist-up upper body medium shot", the framing MUST stay waist-up regardless of which pose is chosen. Framing > pose variety priority.
-                        OUTFIT-VISIBILITY CONSTRAINT: every pose MUST still showcase the outfit cleanly — keep the garment's silhouette, key details, and hemline readable. Do NOT cover the garment with crossed arms, do NOT obscure the chest/torso, do NOT crop key details with body language.
-                      - PROHIBITED: do NOT introduce new props, do NOT shift the backdrop hue, do NOT change the lighting angle, do NOT add or remove atmospheric effects (haze/dust/glow) between variations. ANY drift in environment, lighting, color, or wardrobe between the 2 outputs in this batch is a HARD FAILURE.
+                      - CRITICAL SCENE LOCK: DO NOT change the background color, texture, shadows, or lighting setup. The studio environment and lighting conditions MUST be mathematically identical across all generated images.
                       ${detailDesc}
 
-                      ${profileLockBlock}
-
                       DIRECTOR'S NOTES:
-                      "${cleanFittingPrompt}"
-
+                      "${fittingPrompt}"
+                      
                       ${HIGH_END_STYLE_PROMPT}
                     ` },
-                    // [Image 1] = primary face (front of attention window)
-                    { inlineData: { mimeType: "image/jpeg", data: compPrimaryFace.split(',')[1] } },
-                    // [Image 2] = body
+                    { inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } }, 
                     { inlineData: { mimeType: "image/jpeg", data: compBody.split(',')[1] } }
                   ];
-
+                  
                   let parts = baseParts.concat(compItems.map(item => ({ inlineData: { mimeType: "image/jpeg", data: item.data.split(',')[1] } })));
                   parts = parts.concat(compDetails.map(img => ({ inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] } })));
-
+                  
                   if (bgTone === 'custom' && compCustomBg) {
                       parts.push({ inlineData: { mimeType: "image/jpeg", data: compCustomBg.split(',')[1] } });
                   }
 
-                  // BOOKEND: re-attach all face images at the END of the parts array.
-                  // Models give more weight to inputs at the start AND the end of the
-                  // attention window — sending faces twice strengthens identity lock.
-                  for (const face of compFaces) {
-                      parts.push({ inlineData: { mimeType: "image/jpeg", data: face.split(',')[1] } });
-                  }
-
-                  const { dataUrl } = await geminiGenerateImage({
-                    primaryModelId: MODEL_OPTIONS.PRO,
-                    fallbackModelId: null,
-                    apiKey: settings.apiKey || DEFAULT_API_KEY,
-                    contentsParts: parts,
-                    aspectRatio: '3:4',
+                  const { dataUrl } = await geminiGenerateImage({ 
+                    primaryModelId: MODEL_OPTIONS.PRO, 
+                    fallbackModelId: null, 
+                    apiKey: settings.apiKey || DEFAULT_API_KEY, 
+                    contentsParts: parts, 
+                    aspectRatio: '3:4', 
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
                   resolve(dataUrl);
@@ -2445,11 +2066,10 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
       }
 
       setGeneratedFits(successfulImages);
-      const modeLabel = mode === 'focus' ? '포커스 컷' : '전신 컷';
-      if (successfulImages.length < 2) {
-          showNotification(`${modeLabel} 2장 중 ${successfulImages.length}장만 생성되었습니다.`);
+      if (successfulImages.length < 4) {
+          showNotification(`4장 중 ${successfulImages.length}장만 생성되었습니다.`);
       } else {
-          showNotification(`${modeLabel} 2장이 성공적으로 생성되었습니다.`);
+          showNotification("4장의 피팅컷이 성공적으로 생성되었습니다.");
       }
 
     } catch (e) {
@@ -2463,46 +2083,22 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
     <div className="flex flex-row h-full bg-white">
       <div className="flex-1 flex flex-col p-8 overflow-y-auto bg-gray-50 border-r border-black">
         <div className="max-w-4xl mx-auto w-full flex flex-col gap-8">
-
+          
           <div>
             <h3 className="text-xl font-black uppercase mb-2 flex items-center gap-2"><UserCheck className="w-6 h-6" /> Model Source</h3>
-            <p className="text-sm text-gray-600 mb-4 font-medium">동일한 모델의 얼굴(최대 3장 — 다각도면 이목구비 보존이 강해짐) + 전신을 업로드하세요. AI가 합성합니다.</p>
+            <p className="text-sm text-gray-600 mb-4 font-medium">동일한 모델의 2장 사진을 업로드하세요. AI가 얼굴과 전신을 하나의 모델로 합성합니다.</p>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col">
-                <span className="text-sm font-bold uppercase mb-2 bg-black text-white px-2 py-1 w-fit">1. Face Closeups ({faceImages.length}/3)</span>
-                {faceImages.length > 0 ? (
-                  <div className="aspect-square border-2 border-dashed border-gray-400 bg-white p-1.5 flex flex-col gap-1">
-                    <div className="flex-1 relative border border-gray-200 overflow-hidden min-h-0">
-                      <img src={faceImages[0]} className="w-full h-full object-contain absolute inset-0" alt="Primary Face"/>
-                      <button onClick={() => removeFaceAt(0)} className="absolute top-1 right-1 p-1 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-3 h-3"/></button>
-                      <span className="absolute bottom-1 left-1 bg-black text-white text-[9px] font-bold px-1 py-0.5">PRIMARY</span>
-                    </div>
-                    <div className="flex gap-1 shrink-0 h-10">
-                      {faceImages.slice(1).map((img, idx) => (
-                        <div key={idx+1} className="flex-1 relative border border-gray-200 overflow-hidden">
-                          <img src={img} className="w-full h-full object-cover" alt={`Face ${idx+2}`}/>
-                          <button onClick={() => removeFaceAt(idx + 1)} className="absolute top-0.5 right-0.5 p-0.5 bg-black text-white rounded-full hover:bg-gray-800"><X className="w-2.5 h-2.5"/></button>
-                        </div>
-                      ))}
-                      {faceImages.length < 3 && (
-                        <button onClick={() => document.getElementById('face-upload').click()} className="flex-1 bg-gray-100 text-black border border-gray-300 text-[9px] font-bold flex flex-col items-center justify-center gap-0.5 hover:bg-gray-200 transition-colors">
-                          <Plus className="w-3 h-3"/> 각도+
-                        </button>
-                      )}
-                    </div>
-                    <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
-                  </div>
-                ) : (
-                  <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleFaceUpload(e.dataTransfer.files); }} className="aspect-square border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
-                    <div className="text-center px-2"><ImageIcon className="w-7 h-7 mx-auto text-gray-300 mb-1"/><span className="text-xs font-bold text-gray-400">얼굴 클로즈업</span><span className="text-[10px] text-gray-400 mt-0.5 block leading-tight">눈/코/입 선명하게<br/>최대 3장 다각도</span></div>
-                    <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
-                  </div>
-                )}
+                <span className="text-sm font-bold uppercase mb-2 bg-black text-white px-2 py-1 w-fit">1. Face Closeup </span>
+                <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'face'); }} className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+                  {faceImage ? <img src={faceImage} className="w-full h-full object-cover" alt="Face" /> : <div className="text-center"><ImageIcon className="w-8 h-8 mx-auto text-gray-300 mb-2"/><span className="text-sm font-bold text-gray-400">얼굴 클로즈업</span><span className="text-xs text-gray-400 mt-1 block">눈/코/입 선명하게</span></div>}
+                  <input id="face-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'face')} />
+                </div>
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-bold uppercase mb-2 bg-gray-200 text-black px-2 py-1 w-fit">2. Full Body</span>
-                <div onClick={() => document.getElementById('body-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'body'); }} className="aspect-square border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
-                  {bodyImage ? <img src={bodyImage} className="w-full h-full object-contain" alt="Body" /> : <div className="text-center px-2"><UserCheck className="w-7 h-7 mx-auto text-gray-300 mb-1"/><span className="text-xs font-bold text-gray-400">전신 사진</span><span className="text-[10px] text-gray-400 mt-0.5 block leading-tight">머리부터 발끝까지</span></div>}
+                <div onClick={() => document.getElementById('body-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files[0], 'body'); }} className="aspect-[3/4] border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative transition-colors overflow-hidden">
+                  {bodyImage ? <img src={bodyImage} className="w-full h-full object-contain" alt="Body" /> : <div className="text-center"><UserCheck className="w-8 h-8 mx-auto text-gray-300 mb-2"/><span className="text-sm font-bold text-gray-400">전신 사진</span><span className="text-xs text-gray-400 mt-1 block">머리부터 발끝까지</span></div>}
                   <input id="body-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e.target.files[0], 'body')} />
                 </div>
               </div>
@@ -2535,91 +2131,8 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
               ))}
             </div>
 
-            {/* 3. Styling Notes (먼저) */}
+            {/* 3. Studio Background Tone */}
             <div className="mb-8">
-               <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Highlighter className="w-6 h-6" /> Styling Director Notes</h3>
-
-               <div className="mb-4 bg-gray-50 border border-gray-200 p-4">
-                  <span className="text-[11px] font-bold text-black uppercase flex items-center gap-1 mb-3">
-                     <Tag className="w-3 h-3"/> 메인 상품 디테일 컷 (최대 3장)
-                  </span>
-                  <div className="flex gap-2 items-start">
-                     {mainItemDetails.map((img, idx) => (
-                        <div key={idx} className="relative w-16 h-16 border border-gray-300 shrink-0 bg-white">
-                           <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
-                           <button onClick={() => setMainItemDetails(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
-                        </div>
-                     ))}
-                     {mainItemDetails.length < 3 && (
-                        <div onClick={() => document.getElementById('main-detail-upload').click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleDetailUpload(e.dataTransfer.files); }} className="w-16 h-16 border-2 border-dashed border-gray-300 bg-white cursor-pointer flex flex-col items-center justify-center shrink-0 hover:border-black transition-colors">
-                           <Plus className="w-4 h-4 text-gray-400 mb-0.5"/>
-                           <span className="text-[8px] font-bold text-gray-500 text-center leading-tight">디테일<br/>추가</span>
-                           <input id="main-detail-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleDetailUpload(e.target.files)} />
-                        </div>
-                     )}
-                  </div>
-                  <p className="text-[10px] text-gray-500 mt-2 font-medium">메인으로 설정된 의상의 디테일(원단 질감, 패턴, 재봉선 등)을 명확히 반영하기 위한 참고 이미지입니다.</p>
-               </div>
-
-               <div className="flex flex-wrap gap-2 mb-2">
-                 {fittingSnippets.map(s => {
-                    const profile = MODEL_PROFILES.find(p => p.token === s);
-                    const isProfile = !!profile;
-                    return (
-                      <button
-                        key={s}
-                        onClick={() => appendPromptSnippet(s, setFittingPrompt)}
-                        title={isProfile ? `클릭 시 ${profile.label} 프로필이 프롬프트에 자동 주입됩니다 (얼굴 이미지와 함께 작동)` : undefined}
-                        className={`text-[11px] font-bold px-2 py-1 border transition-colors ${isProfile ? 'bg-black text-white border-black hover:bg-gray-800' : 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-700'}`}
-                      >
-                        + {isProfile ? profile.label : s}
-                      </button>
-                    );
-                 })}
-               </div>
-               <div className="flex gap-4 items-stretch">
-                   <textarea
-                      value={fittingPrompt || ''}
-                      onChange={(e) => setFittingPrompt(e.target.value)}
-                      className="flex-1 h-32 p-4 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed overflow-y-auto resize-none"
-                      placeholder="예: 모자는 푹 눌러쓰고, 신발은 스포티하게 연출해주세요..."
-                    />
-                    <div className="flex flex-col gap-2 w-40 shrink-0">
-                      {(() => {
-                        const t = items.find(i => i.id === mainItemId)?.type;
-                        const focusLabel = t === 'BOTTOM' ? '하반신' : t === 'SHOES' ? '발' : '상반신';
-                        const isDisabled = isGenerating || faceImages.length === 0 || !bodyImage;
-                        const wasFullBody = lastGenMode === 'fullbody' && generatedFits.length > 0;
-                        const wasFocus = lastGenMode === 'focus' && generatedFits.length > 0;
-                        return (
-                          <>
-                            <button onClick={() => handleGenerateFit('fullbody')} disabled={isDisabled} className={`flex-1 text-white font-bold text-xs uppercase transition-all flex flex-col items-center justify-center gap-1 py-2 ${wasFullBody ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                              {isGenerating && lastGenMode === 'fullbody' ? (
-                                <><Loader2 className="w-5 h-5 animate-spin" /> <span>전신 2장<br/>생성 중...</span></>
-                              ) : wasFullBody ? (
-                                <><RefreshCcw className="w-5 h-5 text-white" /> <span className="text-center">전신 2장<br/>재생성</span></>
-                              ) : (
-                                <><Sparkles className="w-5 h-5 text-white" /> <span className="text-center">전신 2장<br/>생성</span></>
-                              )}
-                            </button>
-                            <button onClick={() => handleGenerateFit('focus')} disabled={isDisabled} className={`flex-1 text-white font-bold text-xs uppercase transition-all flex flex-col items-center justify-center gap-1 py-2 ${wasFocus ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                              {isGenerating && lastGenMode === 'focus' ? (
-                                <><Loader2 className="w-5 h-5 animate-spin" /> <span>{focusLabel} 2장<br/>생성 중...</span></>
-                              ) : wasFocus ? (
-                                <><RefreshCcw className="w-5 h-5 text-white" /> <span className="text-center">{focusLabel} 2장<br/>재생성</span></>
-                              ) : (
-                                <><Sparkles className="w-5 h-5 text-white" /> <span className="text-center">{focusLabel} 2장<br/>생성</span></>
-                              )}
-                            </button>
-                          </>
-                        );
-                      })()}
-                    </div>
-               </div>
-             </div>
-
-            {/* 4. Studio Background Tone (이제 가장 아래로 이동) */}
-            <div>
                <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Sun className="w-6 h-6" /> Background Tone</h3>
                <p className="text-sm text-gray-500 font-bold mb-3">기본적인 메인광+반사광 스튜디오 세팅에서 배경의 밝기 톤을 선택하세요.</p>
                <div className="grid grid-cols-4 gap-2">
@@ -2646,6 +2159,60 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
                   </div>
                )}
             </div>
+
+            {/* 4. Styling Notes */}
+            <div>
+               <h3 className="text-xl font-black uppercase flex items-center gap-2 mb-2"><Highlighter className="w-6 h-6" /> Styling Director Notes</h3>
+               
+               <div className="mb-4 bg-gray-50 border border-gray-200 p-4">
+                  <span className="text-[11px] font-bold text-black uppercase flex items-center gap-1 mb-3">
+                     <Tag className="w-3 h-3"/> 메인 상품 디테일 컷 (최대 3장)
+                  </span>
+                  <div className="flex gap-2 items-start">
+                     {mainItemDetails.map((img, idx) => (
+                        <div key={idx} className="relative w-16 h-16 border border-gray-300 shrink-0 bg-white">
+                           <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
+                           <button onClick={() => setMainItemDetails(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                        </div>
+                     ))}
+                     {mainItemDetails.length < 3 && (
+                        <div onClick={() => document.getElementById('main-detail-upload').click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleDetailUpload(e.dataTransfer.files); }} className="w-16 h-16 border-2 border-dashed border-gray-300 bg-white cursor-pointer flex flex-col items-center justify-center shrink-0 hover:border-black transition-colors">
+                           <Plus className="w-4 h-4 text-gray-400 mb-0.5"/>
+                           <span className="text-[8px] font-bold text-gray-500 text-center leading-tight">디테일<br/>추가</span>
+                           <input id="main-detail-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleDetailUpload(e.target.files)} />
+                        </div>
+                     )}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-2 font-medium">메인으로 설정된 의상의 디테일(원단 질감, 패턴, 재봉선 등)을 명확히 반영하기 위한 참고 이미지입니다.</p>
+               </div>
+
+               <div className="flex flex-wrap gap-2 mb-2">
+                 {fittingSnippets.map(s => (
+                    <button key={s} onClick={() => appendPromptSnippet(s, setFittingPrompt)} className="text-[11px] font-bold px-2 py-1 bg-gray-100 border border-gray-200 hover:bg-gray-200 text-gray-700 transition-colors">
+                      + {s}
+                    </button>
+                 ))}
+               </div>
+               <div className="flex gap-4 items-stretch">
+                   <textarea 
+                      value={fittingPrompt || ''} 
+                      onChange={(e) => setFittingPrompt(e.target.value)} 
+                      className="flex-1 h-32 p-4 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed overflow-y-auto resize-none" 
+                      placeholder="예: 모자는 푹 눌러쓰고, 신발은 스포티하게 연출해주세요..." 
+                    />
+                    <button onClick={handleGenerateFit} disabled={isGenerating || !faceImage || !bodyImage} className={`w-36 text-white font-bold text-base uppercase transition-all flex flex-col items-center justify-center gap-1 ${generatedFits.length > 0 ? 'bg-gray-800 hover:bg-gray-900' : 'bg-black hover:bg-gray-800'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                        {isGenerating ? (
+                          <><Loader2 className="w-6 h-6 animate-spin" /> <span>피팅 4장<br/>생성 중...</span></>
+                        ) : (
+                          generatedFits.length > 0 ? (
+                            <><RefreshCcw className="w-6 h-6 text-white" /> <span className="text-center">코디 4장<br/>재생성</span></>
+                          ) : (
+                            <><Sparkles className="w-6 h-6 text-white" /> <span className="text-center">피팅 4장<br/>자동생성</span></>
+                          )
+                        )}
+                     </button>
+               </div>
+             </div>
           </div>
 
         </div>
@@ -2657,34 +2224,20 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
-
+          
           {generatedFits.length > 0 ? (
             <div className="flex flex-col gap-4 animate-fade-in border-b-2 border-black pb-8">
               <div className="flex items-center gap-2 mb-1">
                  <CheckCircle2 className="w-5 h-5 text-black" />
                  <span className="text-sm font-bold uppercase text-black">Generation Complete ({currentFitIndex + 1}/{generatedFits.length})</span>
                  <span className="text-[10px] font-bold bg-gray-200 px-2 py-1 ml-auto">
-                    {(() => {
-                      const t = items.find(i => i.id === mainItemId)?.type;
-                      const focusLabel = t === 'BOTTOM' ? '하반신' : t === 'SHOES' ? '발' : '상반신';
-                      if (lastGenMode === 'focus') {
-                        return currentFitIndex === 0 ? `${focusLabel} 정면` : `${focusLabel} 사이드`;
-                      }
-                      // default: fullbody
-                      return currentFitIndex === 0 ? '전신 1' : '전신 2';
-                    })()}
+                    {currentFitIndex === 0 ? '정면 1' : currentFitIndex === 1 ? '정면 2' : currentFitIndex === 2 ? '우측 10도' : '자유포즈 클로즈업'}
                  </span>
               </div>
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
                 <img src={generatedFits[currentFitIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated Fit" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
-                <button onClick={(e) => { e.stopPropagation(); handleDownload(); }} title="이미지 다운로드" className="absolute top-3 right-3 z-20 bg-white/95 hover:bg-white border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Download className="w-4 h-4 text-black" /></button>
-                {/* Video send button temporarily disabled (Video Studio is hidden).
-                {sendToVideo && (
-                  <button onClick={(e) => { e.stopPropagation(); sendToVideo([generatedFits[currentFitIndex]]); }} title="이 이미지로 영상 만들기" className="absolute top-3 right-14 z-20 bg-black/95 hover:bg-black border border-black p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-bold">🎬</button>
-                )}
-                */}
-
+                
                 {generatedFits.length > 1 && (
                   <>
                     <button onClick={(e) => { e.stopPropagation(); setCurrentFitIndex(p => Math.max(0, p - 1)); }} disabled={currentFitIndex === 0} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
@@ -2717,6 +2270,7 @@ const FittingRoomGenerator = ({ settings, showNotification, sendToVideo }) => {
     </div>
   );
 };
+
 
 const ProductStudioGenerator = ({ settings, showNotification, sendToVideo }) => {
   const [productImages, setProductImages] = useState([]); // 최대 6장
