@@ -1178,19 +1178,21 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       let inputImagesText;
       let clothesRuleText;
       if (isMulti) {
-        inputImagesText = `\n    [IMAGE INPUTS RECOGNITION — MULTI-MODEL CAMPAIGN]\n`;
-        modelBlocks.forEach(b => {
-          inputImagesText += `    ${b.name}:\n      Image ${b.outfitIdx} = ${b.name} OUTFIT (clothing + body silhouette)\n`;
-          if (b.faceRange) inputImagesText += `      Image ${b.faceRange} = ${b.name} FACE references\n`;
-          if (b.detailRange) inputImagesText += `      Image ${b.detailRange} = ${b.name} fabric detail close-ups\n`;
-        });
-        inputImagesText += `    Image ${refImgIdx} = REFERENCE STYLE (environment, lighting, mood)`;
-
-        clothesRuleText = `\n    [RULE 1: STRICT PER-MODEL OUTFIT + IDENTITY LOCK]\n`;
+        inputImagesText = `\n    [IMAGE INPUTS — REFERENCE-DRIVEN MULTI-MODEL CAMPAIGN]\n`;
         modelBlocks.forEach((b, i) => {
-          clothesRuleText += `    Person ${i + 1} (${b.name}): wears ONLY the outfit from Image ${b.outfitIdx}${b.faceRange ? `, has the face from Image ${b.faceRange}` : ''}.\n`;
+          inputImagesText += `    ${b.name} (will replace the ${i === 0 ? '1st' : i === 1 ? '2nd' : '3rd'} person FROM THE RIGHT in the reference):\n`;
+          inputImagesText += `      Image ${b.outfitIdx} = ${b.name} outfit\n`;
+          if (b.faceRange) inputImagesText += `      Image ${b.faceRange} = ${b.name} face\n`;
+          if (b.detailRange) inputImagesText += `      Image ${b.detailRange} = ${b.name} fabric details\n`;
         });
-        clothesRuleText += `    PROHIBITED — NEVER swap outfits between people, NEVER mix faces, NEVER bring the outfit/person from the Reference Style (Image ${refImgIdx}) into the scene. The reference is ONLY for environment/lighting/mood.`;
+        inputImagesText += `    Image ${refImgIdx} = REFERENCE IMAGE — used as the POSE / COMPOSITION / MOOD template. Contains ${models.length}+ people whose poses Model A/B${models.length > 2 ? '/C' : ''} will inherit.`;
+
+        const mappingLines = modelBlocks.map((b, i) => {
+          const ord = i === 0 ? '1st from RIGHT' : i === 1 ? '2nd from RIGHT' : '3rd from RIGHT';
+          return `    - The ${ord} person in the reference → REPLACE with ${b.name} (face from Image ${b.faceRange || b.outfitIdx}, outfit from Image ${b.outfitIdx}). Keep their EXACT pose, body angle, head direction, gaze, gesture, hand placement, and spatial position.`;
+        }).join('\n');
+
+        clothesRuleText = `\n    [RULE 1: REFERENCE-DRIVEN POSE & COMPOSITION TEMPLATE]\n    The Reference Image (Image ${refImgIdx}) is the POSE & COMPOSITION TEMPLATE. Identify the people in the reference and order them from right to left. Then perform a one-to-one IDENTITY SWAP:\n${mappingLines}\n\n    INHERIT FROM THE REFERENCE (per replaced person):\n    - Body pose, posture, body orientation, head tilt, gaze direction, arm/hand placement, leg position\n    - Spatial position in the frame, distance from the other people, interaction direction\n    - Background, lighting, color grade, atmosphere — same as reference\n\n    OVERRIDE FROM EACH MODEL'S OWN IMAGES:\n    - Face / identity / skin tone / hair → from that model's face references\n    - Outfit / clothing / accessories → from that model's outfit image\n\n    PROHIBITED: NEVER swap which model goes into which position. NEVER mix outfits between models. NEVER bring the original reference people's faces or clothes into the output. The reference is a pose blueprint, the models supply the identities and clothes.`;
       } else {
         // Single-model legacy paths
         const b = modelBlocks[0];
@@ -1215,25 +1217,16 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       // Build face / detail / group rules using the pre-computed model blocks
       let faceRuleText = '';
       if (isMulti) {
-        faceRuleText = `\n    [RULE 3: PER-PERSON IDENTITY LOCK — #1 ABSOLUTE PRIORITY]\n`;
+        faceRuleText = `\n    [RULE 2 — REFERENCE POSE INHERITANCE (PER PERSON)]\n    Each replaced person retains the exact pose of the reference person they replaced. Match their body angle, head tilt, gaze direction, arm/hand placement, leg position, and facial expression intensity — the SAME pose, just with a different face & outfit.\n\n    [RULE 3 — FACE & TEXTURE OVERRIDE (PER PERSON)]\n`;
         modelBlocks.forEach((b, i) => {
+          const ord = i === 0 ? '1st-from-right' : i === 1 ? '2nd-from-right' : '3rd-from-right';
           if (b.faceRange) {
-            faceRuleText += `    Person ${i + 1} (${b.name}): identity locked to Image ${b.faceRange}. Match eye shape / nose / lips / jawline / skin tone / hairline / freckles & moles verbatim. NO new face, NO averaging, NO mixing with other people.\n`;
+            faceRuleText += `    ${ord} replaced person = ${b.name}: face strictly from Image ${b.faceRange}${b.detailRange ? `, fabric texture from Image ${b.detailRange}` : ''}.\n`;
           } else {
-            faceRuleText += `    Person ${i + 1} (${b.name}): no face reference uploaded — preserve whatever face is visible in Image ${b.outfitIdx} (the outfit image) and keep that identity locked across both outputs.\n`;
+            faceRuleText += `    ${ord} replaced person = ${b.name}: face from whoever appears in Image ${b.outfitIdx}${b.detailRange ? `, fabric texture from Image ${b.detailRange}` : ''}.\n`;
           }
         });
-        faceRuleText += `    CRITICAL: NEVER mix faces between persons. Person 1 and Person 2 must look like DIFFERENT, distinct individuals. Each person's face stays consistent across both generated images.\n`;
-
-        // Detail rules per model
-        modelBlocks.forEach((b, i) => {
-          if (b.detailRange) {
-            faceRuleText += `    ${b.name} TEXTURE LOCK: use Image ${b.detailRange} to perfectly replicate the fabric weave / stitching of Image ${b.outfitIdx}.\n`;
-          }
-        });
-
-        // Group composition rule
-        faceRuleText += `\n    [RULE 4: GROUP COMPOSITION — ${models.length}-PERSON CAMPAIGN SHOT]\n    All ${models.length} people appear together IN THE SAME FRAME, in the SAME location, lit by the SAME light setup. Natural editorial campaign composition (standing together, slightly turned toward camera, with comfortable spacing). Every person is fully visible — no one cropped, no one occluded behind another. Each outfit is clearly readable. The 2 generated images share the same group composition / lighting / location; only pose and micro-expression differ between the two.`;
+        faceRuleText += `    Keep each model's identity consistent across BOTH generated images. Different models are different distinct people — never blend their features.`;
       } else {
         const b = modelBlocks[0];
         if (b.faceRange) {
@@ -1339,8 +1332,8 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       if (effMode === 'fullbody') {
         if (isMulti) {
           lookbookVariations = [
-            `CAMPAIGN GROUP SHOT (Variation 1 of 2): ALL ${models.length} people stand together in one frame, full body from head to toe, naturally arranged side by side with comfortable spacing. Each person wears their assigned outfit and shows their assigned face. Natural relaxed poses, looking toward the camera. Lighting and background MUST be 100% identical to the reference.`,
-            `CAMPAIGN GROUP SHOT (Variation 2 of 2): same ${models.length}-person group, same full-body framing, same lighting and background. Poses are SUBSTANTIALLY DIFFERENT from Variation 1 — different weight distribution, different hand placement, slight body-orientation changes (one person turned slightly more, another looking off-frame, etc.). Each person remains the SAME individual with the SAME outfit. The outfits and faces stay identifiable.`
+            `CAMPAIGN — REFERENCE POSE MATCH (Variation 1 of 2): match the reference image's composition as closely as possible. The ${models.length} replaced people keep the EXACT poses, positions, and gestures of the original reference people they replaced. Background, lighting, framing distance, and camera angle = same as reference. Only the faces and outfits are swapped out per the model mapping.`,
+            `CAMPAIGN — REFERENCE POSE MATCH (Variation 2 of 2): same location, same lighting, same model-to-person mapping. The poses are still inspired by the reference but with subtle natural variations (one head tilted slightly differently, a hand placed in a slightly different spot, a small shift in body angle) so the two outputs read as two takes from the same shoot — not duplicates, but very close siblings.`
           ];
         } else {
           lookbookVariations = [
