@@ -1157,23 +1157,39 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       const compRef = await compressImage(currentReference.image, 1024, 0.8);
 
       // Build per-model "input image" indexing for the prompt.
-      // Order: for each model: outfit + faces + details, then Style Reference at the very end.
+      // Two orderings:
+      //   SINGLE-MODEL (legacy, proven): [text, target, ref, details, faces] → face at the END = stronger identity bookend
+      //   MULTI-MODEL: [text, per-model(outfit+faces+details), ref] → ref last so reference layout dominates composition
       const modelBlocks = [];
       let imgIdx = 1;
-      compModels.forEach((cm, mIdx) => {
-        const outfitIdx = imgIdx; imgIdx++;
-        const faceStart = imgIdx; imgIdx += cm.compFaces.length;
+      let refImgIdx;
+      if (isMulti) {
+        compModels.forEach((cm) => {
+          const outfitIdx = imgIdx; imgIdx++;
+          const faceStart = imgIdx; imgIdx += cm.compFaces.length;
+          const detailStart = imgIdx; imgIdx += cm.compDetails.length;
+          modelBlocks.push({
+            name: cm.name,
+            outfitIdx,
+            faceRange: cm.compFaces.length > 0 ? `${faceStart}${cm.compFaces.length > 1 ? `~${faceStart + cm.compFaces.length - 1}` : ''}` : null,
+            detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null
+          });
+        });
+        refImgIdx = imgIdx; imgIdx++;
+      } else {
+        // Single-model legacy ordering
+        const cm = compModels[0];
+        const outfitIdx = imgIdx; imgIdx++;       // 1: target
+        refImgIdx = imgIdx; imgIdx++;             // 2: reference style
         const detailStart = imgIdx; imgIdx += cm.compDetails.length;
+        const faceStart = imgIdx; imgIdx += cm.compFaces.length;
         modelBlocks.push({
           name: cm.name,
           outfitIdx,
           faceRange: cm.compFaces.length > 0 ? `${faceStart}${cm.compFaces.length > 1 ? `~${faceStart + cm.compFaces.length - 1}` : ''}` : null,
-          detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null,
-          faceCount: cm.compFaces.length,
-          detailCount: cm.compDetails.length
+          detailRange: cm.compDetails.length > 0 ? `${detailStart}${cm.compDetails.length > 1 ? `~${detailStart + cm.compDetails.length - 1}` : ''}` : null
         });
-      });
-      const refImgIdx = imgIdx;
+      }
 
       let inputImagesText;
       let clothesRuleText;
@@ -1316,14 +1332,23 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
         ` }
       ];
 
-      // Add images in the exact order documented in inputImagesText:
-      // For each model: outfit -> faces -> details. Then style reference at the END.
-      for (const cm of compModels) {
+      // Add images in the exact order documented in inputImagesText.
+      if (isMulti) {
+        // Multi-model: per-model(outfit + faces + details), then reference last
+        for (const cm of compModels) {
+          parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compTarget.split(',')[1] } });
+          for (const f of cm.compFaces) parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } });
+          for (const d of cm.compDetails) parts.push({ inlineData: { mimeType: 'image/jpeg', data: d.split(',')[1] } });
+        }
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
+      } else {
+        // Single-model legacy order: target → ref → details → faces (faces at end for identity bookend)
+        const cm = compModels[0];
         parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compTarget.split(',')[1] } });
-        for (const f of cm.compFaces) parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } });
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
         for (const d of cm.compDetails) parts.push({ inlineData: { mimeType: 'image/jpeg', data: d.split(',')[1] } });
+        for (const f of cm.compFaces) parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.split(',')[1] } });
       }
-      parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
 
       // Mode-aware 2-variation set. Framing is determined by the button mode (fullbody / focus).
       // No camera-angle or perspective gymnastics — just pose and natural moment variation
@@ -1332,27 +1357,27 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
       if (effMode === 'fullbody') {
         if (isMulti) {
           lookbookVariations = [
-            `CAMPAIGN — REFERENCE POSE MATCH (Variation 1 of 2): match the reference image's composition as closely as possible. The ${models.length} replaced people keep the EXACT poses, positions, and gestures of the original reference people they replaced. Background, lighting, framing distance, and camera angle = same as reference. Only the faces and outfits are swapped out per the model mapping.`,
-            `CAMPAIGN — REFERENCE POSE MATCH (Variation 2 of 2): same location, same lighting, same model-to-person mapping. The poses are still inspired by the reference but with subtle natural variations (one head tilted slightly differently, a hand placed in a slightly different spot, a small shift in body angle) so the two outputs read as two takes from the same shoot — not duplicates, but very close siblings.`
+            `CAMPAIGN GROUP SHOT — POSE A: ${models.length} people in one frame, matching the reference image's composition (right-to-left model assignment per RULE 1). Each replaced person holds the EXACT pose of the reference person they replaced — same body angle, head tilt, gaze, gesture, spatial position. Background, lighting, framing = same as reference. Only faces and outfits are swapped per the model mapping.`,
+            `CAMPAIGN GROUP SHOT — POSE B: same ${models.length}-person composition, same location, same lighting, same model-to-person mapping. Each person uses a natural micro-variation of the reference pose (slight head turn, different hand position, small body angle shift) so this reads as a different take from the same shoot. Keep each model's face and outfit IDENTICAL to Pose A.`
           ];
         } else {
           lookbookVariations = [
-            "FULL BODY SHOT (Variation 1 of 2): the model's entire body from the top of the head down to below the feet is visible in the frame. The lighting and background MUST be 100% identical to the reference. Natural relaxed pose with weight evenly distributed.",
-            "FULL BODY SHOT (Variation 2 of 2): same FULL BODY framing as Variation 1 (head to toe visible). Same lighting and background. Pose is SUBSTANTIALLY DIFFERENT from Variation 1 — shift weight to one leg (contrapposto), change arm/hand placement (hand in pocket / hand on hip / hand through hair / arms relaxed differently), with a clearly different but natural micro-expression. The outfit silhouette must remain readable."
+            "FULL BODY SHOT — POSE A: head-to-toe full body visible. Stand naturally with weight evenly distributed, arms relaxed at the sides, looking toward the camera. Background, lighting, color grade match the reference image. The MODEL's face MUST match the face reference (or the face in the target image); NEVER use the face of the person in the reference style image — the reference is for environment/mood only.",
+            "FULL BODY SHOT — POSE B: head-to-toe full body visible. Contrapposto stance (weight on one leg), ONE HAND on hip OR in pocket OR through hair (pick one naturally), with a calm relaxed expression. Background, lighting, color grade match the reference image. The MODEL's face MUST match the face reference (or the face in the target image); NEVER use the face of the person in the reference style image — the reference is for environment/mood only."
           ];
         }
       } else {
         // Focus mode — depends on targetFocus
         if (targetFocus === 'lower') {
           lookbookVariations = [
-            "LOWER BODY FOCUS (Variation 1 of 2): frame the model from the waist down to the ankles. Camera at waist-to-thigh level. The pants/skirt silhouette, drape, and fit are the clear subject. The lighting and background MUST be 100% identical to the reference.",
-            "LOWER BODY FOCUS (Variation 2 of 2): same lower-body framing (waist to ankles), captured mid-stride / walking motion from a slight 3/4 angle to show natural fabric flow on the legs. The lighting and background MUST be 100% identical to the reference."
+            "LOWER BODY FOCUS — POSE A: frame the model from the waist down to the ankles. Camera at waist-to-thigh level, straight-on. Pants/skirt silhouette and fit are the subject. Background, lighting, color grade match the reference image. NEVER replace the model's face/identity with the person in the reference image.",
+            "LOWER BODY FOCUS — POSE B: frame the model from the waist down to the ankles. Camera at waist-to-thigh level, slight 3/4 side angle, captured mid-stride / walking motion to show natural fabric flow on the legs. Background, lighting, color grade match the reference image. NEVER replace the model's face/identity with the person in the reference image."
           ];
         } else {
           // upper / default
           lookbookVariations = [
-            "UPPER BODY FOCUS (Variation 1 of 2): frame the model from the waistline up to the top of the head. The face IS in frame and clearly recognizable. Focus on neckline, shoulders, chest, sleeves, and the upper-body silhouette of the outfit. The lighting and background MUST be 100% identical to the reference.",
-            "UPPER BODY FOCUS (Variation 2 of 2): same upper-body framing (waist up to head). Same lighting and background. Pose is SUBSTANTIALLY DIFFERENT from Variation 1 — different head tilt, different arm/hand position, different but natural micro-expression. The face must remain recognizable."
+            "UPPER BODY FOCUS — POSE A: frame the model from the waistline up to the top of the head. The face IS in frame, sharp and identity-locked. Camera at chest-to-eye level, straight-on. Focus on neckline, shoulders, chest, sleeves. Background, lighting, color grade match the reference image. The MODEL's face MUST match the face reference — NEVER use the face of the person in the reference image.",
+            "UPPER BODY FOCUS — POSE B: frame the model from the waistline up to the top of the head. The face IS in frame, sharp and identity-locked. Camera at chest-to-eye level. Slight 3/4 side angle, different head tilt and hand position from a standard front pose, with a natural calm micro-expression. The MODEL's face MUST match the face reference — NEVER use the face of the person in the reference image."
           ];
         }
       }
