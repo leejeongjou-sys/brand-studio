@@ -2285,6 +2285,7 @@ const ProductStudioGenerator = ({ settings, showNotification, sendToVideo }) => 
 
   const [selectedBg, setSelectedBg] = useState('whiteboard');
   const [selectedLighting, setSelectedLighting] = useState('softbox');
+  const [aspectRatio, setAspectRatio] = useState('1:1'); // '1:1' | '3:4'
 
   const [prompt, setPrompt] = useState('');
   const [outputMode, setOutputMode] = useState('group'); // 'group' (단체컷 1장) | 'individual' (제품별 단컷 N장)
@@ -2701,7 +2702,7 @@ ${productRule}${detailRule}
           fallbackModelId: null,
           apiKey: settings.apiKey || DEFAULT_API_KEY,
           contentsParts: parts,
-          aspectRatio: '1:1',
+          aspectRatio,
           qualityMode: settings.highRes ? 'ultra' : 'std'
         });
         return dataUrl;
@@ -2870,9 +2871,29 @@ ${productRule}${detailRule}
             </div>
           </div>
 
-          {/* 4. Custom Prompt / Additional Comments */}
+          {/* 5. Aspect Ratio */}
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 이미지 비율</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: '1:1', label: '1:1', desc: '정사각 (피드/단체컷)' },
+                { id: '3:4', label: '3:4', desc: '세로 (인스타 포트레이트)' }
+              ].map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => setAspectRatio(r.id)}
+                  className={`p-3 text-center border-2 transition-all flex flex-col gap-1 ${aspectRatio === r.id ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}
+                >
+                  <div className="text-sm font-black">{r.label}</div>
+                  <div className={`text-[10px] ${aspectRatio === r.id ? 'text-gray-300' : 'text-gray-500'}`}>{r.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 6. Custom Prompt / Additional Comments */}
           <div className="flex flex-col gap-2 pt-2">
-            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">5. 추가 코멘트 (선택)</h3>
+            <h3 className="text-sm font-bold uppercase text-black border-b-2 border-black pb-1">6. 추가 코멘트 (선택)</h3>
             <div className="flex flex-wrap gap-2 mb-1">
               {productSnippets.map(s => (
                 <button key={s} onClick={() => appendPromptSnippet(s, setPrompt)} className="text-[11px] font-bold px-2 py-1 bg-gray-100 border border-gray-200 hover:bg-gray-200 text-gray-700 transition-colors">
