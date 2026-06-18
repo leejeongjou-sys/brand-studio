@@ -1188,28 +1188,53 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
         }
         parts.push({ inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } });
         // Build multi-model prompt text and replace parts[0]
+        // Mapping is LEFT-to-RIGHT: Model A → leftmost person, Model B → second from left, etc.
         const mapping = mBlocks.map((b, i) => {
-          const ord = i === 0 ? '1st from RIGHT' : i === 1 ? '2nd from RIGHT' : '3rd from RIGHT';
-          return `    - The ${ord} person in the reference (Image ${refImgIdx}) → REPLACE with ${b.name}. Face from Image ${b.faceRange || b.outfitIdx}; outfit from Image ${b.outfitIdx}${b.detailRange ? `; fabric texture from Image ${b.detailRange}` : ''}. Keep that reference person's EXACT pose, body angle, head direction, gaze, gesture, hand placement, and position.`;
+          const ord = i === 0 ? '1st from LEFT (leftmost)' : i === 1 ? '2nd from LEFT' : '3rd from LEFT';
+          return `    - The ${ord} person in the reference (Image ${refImgIdx}) → REPLACE with ${b.name}. Face / facial features (eyes, nose, lips, jawline, skin tone, hairline, hair texture) MUST come exclusively from Image ${b.faceRange || b.outfitIdx}; outfit (clothing, accessories) MUST come exclusively from Image ${b.outfitIdx}${b.detailRange ? `; fabric micro-texture from Image ${b.detailRange}` : ''}. Keep that reference person's EXACT pose, body angle, head direction, gaze, gesture, hand placement, and spatial position.`;
         }).join('\n');
         parts[0] = { text: `
-    TASK: Multi-Model Campaign Lookbook — REFERENCE IMAGE IS THE POSE / COMPOSITION TEMPLATE.
+    TASK: Multi-Model Campaign Lookbook — REFERENCE IMAGE IS THE STYLE & POSE TEMPLATE.
 
-    The Reference Image (Image ${refImgIdx}) contains ${models.length}+ people. From right to left, REPLACE each person with the corresponding model below. The replaced person inherits the original reference person's pose, position, and gesture; only their face & outfit are swapped to the model's uploads.
+    The STYLE BASE / Reference Image (Image ${refImgIdx}) contains ${models.length}+ people. The ${models.length} uploaded models are labeled in registration order (Model A first, then B, then C) and are matched FROM LEFT TO RIGHT to the people in the reference image. Each model REPLACES the corresponding person while inheriting that person's pose, position, and gesture; only the face & outfit are swapped to the model's uploaded images.
 
 ${mapping}
 
-    INHERIT FROM REFERENCE (per replaced person):
+    ═══════════════════════════════════════════════════════════════
+    RULE 1 — STYLE BASE COPY (from the Reference Image, Image ${refImgIdx})
+    ═══════════════════════════════════════════════════════════════
+    Copy EVERY visual / cinematographic property of the Reference Image as the locked baseline for the output:
+    - BACKGROUND: same scene, walls, floor, props, furniture, location, depth
+    - LIGHTING: same key/fill/rim direction, intensity, color temperature, softness, shadow density, shadow direction
+    - CAMERA: same lens character (focal length feel — wide / standard / portrait / telephoto), same depth-of-field aesthetic, same framing distance, same camera height, same angle, same sensor look
+    - POST-PROCESSING: same color grade, white balance, contrast, saturation, film grain character, retouching style, any visible color tone (warm/cool/teal/orange/desaturated/etc.)
+    - ATMOSPHERE / TIME-OF-DAY: same sun/window position, same haze/dust/weather, same ambient cast
+
+    ═══════════════════════════════════════════════════════════════
+    RULE 2 — MODEL ↔ PERSON MAPPING (left-to-right by registration order)
+    ═══════════════════════════════════════════════════════════════
+    Models are referenced in the order they were registered (A → B → C) and matched left-to-right with the people in the reference image.
+    INHERIT FROM the matched reference person (per replaced person):
     - Body pose, posture, body orientation, head tilt, gaze direction, arm/hand placement, leg position
     - Spatial position in the frame, distance from the other people
-    - Background, lighting, color grade, atmosphere
+    OVERRIDE the reference person's:
+    - Face / identity / facial features / skin tone / hairline / hair
+    - Clothing / outfit / accessories
 
-    OVERRIDE FROM EACH MODEL'S OWN IMAGES:
-    - Face / identity / skin tone / hair (from face references)
-    - Outfit / clothing / accessories (from outfit image)
-    - Fabric micro-texture (from detail cuts when present)
+    ═══════════════════════════════════════════════════════════════
+    RULE 3 — TARGET MODEL LOCK (face + outfit from each model's own uploads)
+    ═══════════════════════════════════════════════════════════════
+    Each generated person MUST strictly follow that model's uploaded TARGET images for both face and outfit:
+    - FACE LOCK (HIGHEST PRIORITY): eye shape, eye spacing, nose bridge & tip, lip shape, jawline, chin, cheekbones, skin tone, freckles/moles, hairline, hair color and texture — all copied verbatim from the model's face references (or from the model's outfit image if no separate face reference was uploaded). NEVER generate a new face, NEVER mix faces between models, NEVER use the face of the original reference person.
+    - OUTFIT LOCK: every garment, accessory, color, print, silhouette must match the model's uploaded outfit image exactly. NEVER use the clothing from the reference image.
 
-    PROHIBITED: NEVER swap which model goes into which position. NEVER mix outfits or faces between models. NEVER bring the original reference people's faces or clothes into the output. The reference is a pose blueprint; the models supply the identities and clothes.
+    ═══════════════════════════════════════════════════════════════
+    PROHIBITED (each is a hard failure)
+    ═══════════════════════════════════════════════════════════════
+    - Swapping the model-to-position mapping (e.g. putting Model B on the left when Model A is registered first)
+    - Mixing outfits or faces between models
+    - Importing the original reference people's faces or clothes into the output
+    - Altering the reference image's background / lighting / camera / post-processing
 
     User's creative direction:
     ${prompt}
