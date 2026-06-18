@@ -958,31 +958,102 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   };
 
   const generateDraftPrompt = async () => {
-    if (!targetImage || !reference) return showNotification("의상/전신 타겟 이미지와 레퍼런스 이미지가 모두 필요합니다.", "error");
+    // Multi-model aware: branches on isMulti.
+    if (isMulti) {
+      // Validate every model has at least a target image
+      for (let i = 0; i < models.length; i++) {
+        if (!models[i].targetImage) return showNotification(`${models[i].name}의 의상/전신 이미지를 업로드해주세요.`, 'error');
+      }
+    } else {
+      if (!targetImage) return showNotification("의상/전신 타겟 이미지와 레퍼런스 이미지가 모두 필요합니다.", "error");
+    }
+    if (!reference) return showNotification("레퍼런스 이미지가 필요합니다.", "error");
     setIsGeneratingPrompt(true);
     try {
       const apiKeyToUse = settings?.apiKey || DEFAULT_API_KEY;
-
       const compRef = await compressImage(reference.image, 1024, 0.8);
-      const compTarget = await compressImage(targetImage, 1024, 0.8);
 
-      const parts = [
-        { text: `
+      let parts;
+      if (isMulti) {
+        // Compress each model's target + first face
+        const compMs = await Promise.all(models.map(async (m) => ({
+          name: m.name,
+          compTarget: await compressImage(m.targetImage, 1024, 0.8),
+          compFace: m.faceImages && m.faceImages.length > 0 ? await compressImage(m.faceImages[0], 1024, 0.8) : null
+        })));
+
+        // Build the per-model registration list
+        const modelDescriptions = compMs.map((cm, i) => {
+          const ord = i === 0 ? '1st from LEFT (leftmost)' : i === 1 ? '2nd from LEFT' : '3rd from LEFT';
+          return `${cm.name} → matches the ${ord} person in the Reference Image`;
+        }).join('\n          ');
+
+        parts = [
+          { text: `
+You are a professional Creative Director for a high-end fashion brand.
+
+THIS IS A MULTI-MODEL CAMPAIGN LOOKBOOK with ${models.length} distinct models registered in this order: ${models.map(m => m.name).join(', ')}.
+
+INPUT IMAGES YOU WILL RECEIVE (in order):
+- Reference Image (STYLE BASE — contains ${models.length}+ people whose poses the campaign will inherit)
+${compMs.map((cm, i) => `- ${cm.name} TARGET (outfit + body)${cm.compFace ? `\n- ${cm.name} FACE close-up` : ''}`).join('\n')}
+
+MODEL-TO-PERSON MAPPING (LEFT to RIGHT in the reference, by registration order):
+          ${modelDescriptions}
+
+YOUR TASK:
+Write a detailed image generation prompt in KOREAN (한국어) for this multi-model campaign shot. The prompt MUST capture the user's creative direction for the scene while reinforcing all of the locking rules below.
+
+The prompt MUST START with the following multi-model identity-lock block (copy exactly, substituting model names):
+---
+[다중 모델 캠페인 - 매핑 고정 지시]
+- 레퍼런스 이미지의 인물을 왼쪽부터 순서대로 다음 모델로 대체:
+${models.map((m, i) => `  · 레퍼런스의 ${i === 0 ? '가장 왼쪽' : i === 1 ? '왼쪽에서 두 번째' : '왼쪽에서 세 번째'} 인물 → ${m.name}`).join('\n')}
+- 각 모델은 본인 타겟 이미지의 이목구비(눈/코/입/턱선/광대/피부톤/머리)와 의상을 100% 그대로 따라간다.
+- 모델끼리 얼굴/옷 절대 섞지 말 것.
+- 레퍼런스 원본 인물의 얼굴이나 옷을 결과에 가져오지 말 것.
+- 새로운 인물 생성 금지.
+---
+
+Then, structure the rest of the prompt into these categories, ALL derived from the Reference Image (STYLE BASE):
+1. 전체 분위기 (Mood)
+2. 배경 (Background) - exact scene, props, depth
+3. 라이팅 및 톤 (Lighting) - key/fill/rim direction, color temperature, shadow density
+4. 카메라 세팅 (Camera) - lens character (wide/standard/portrait/telephoto), framing distance, camera height, angle
+5. 후보정 (Post-processing) - color grade, white balance, contrast, saturation, film grain, retouching style
+6. 포즈 및 인물 배치 (Poses & Group Composition) - each model holds the pose of the reference person they replaced; describe natural interaction / spacing between the ${models.length} models
+
+FORMAT:
+- Return only the Korean prompt text starting with the multi-model identity-lock block, then the 6 categories.
+- No introductions, no outros, no markdown headers besides the category titles.
+- Do NOT describe each model's face, body, or clothing in the text — those are locked by the image references.
+` },
+          { inlineData: { mimeType: 'image/jpeg', data: compRef.split(',')[1] } }
+        ];
+        for (const cm of compMs) {
+          parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compTarget.split(',')[1] } });
+          if (cm.compFace) parts.push({ inlineData: { mimeType: 'image/jpeg', data: cm.compFace.split(',')[1] } });
+        }
+      } else {
+        // Single-model legacy path
+        const compTarget = await compressImage(targetImage, 1024, 0.8);
+        parts = [
+          { text: `
           You are a professional Creative Director for a high-end fashion brand.
-          
+
           YOUR TASK:
           1. Analyze the [Reference Image] for its art direction: lighting, color palette, mood, and background.
           2. Analyze the [Target Image] with **EXTREME PRECISION** for the Subject's body and Clothing.
           ${productDetailImages.length > 0 ? '3. Analyze the [Product Detail Images] to extract exact fabric texture, material, and stitching details.' : ''}
           ${faceImages.length > 0 ? '4. Analyze the [Face Image] as the ABSOLUTE source of truth for the facial identity and micro-proportions.' : ''}
-          
+
           CRITICAL ANALYSIS POINTS:
           ${faceImages.length > 0 ? '- **FACE & IDENTITY**: Analyze specific eye shape, nose bridge, lip fullness, jawline, skin texture, and hair flow strictly based on the **[Face Image]** with extreme micro-precision.' : '- **FACE & IDENTITY**: Analyze specific eye shape, nose bridge, lip fullness, jawline, skin texture, and hair flow based on [Target Image].'}
           - **CLOTHING DETAILS**: Analyze fabric texture, exact silhouette, stitching details, and how the fabric drapes based on ${productDetailImages.length > 0 ? '[Target Image] AND [Product Detail Images]' : '[Target Image]'}.
-          
+
           OUTPUT GOAL:
           Write a detailed image generation prompt in **KOREAN (한국어)**.
-          
+
           **CRITICAL**: The prompt MUST START with the following IDENTITY LOCK instruction (copy exactly):
           ---
           [아이덴티티 고정 지시]
@@ -991,7 +1062,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
           - 헤어스타일 및 머리카락 질감 그대로 유지
           - 새로운 인물 생성 절대 금지, 소스 이미지의 인물과 완벽히 일치해야 함
           ---
-          
+
           Then, structure the rest of the prompt into these categories:
           1. **전체 분위기 (Mood)**: Based on [Reference Image].
           2. **배경 (Background)**: Based on [Reference Image].
@@ -1003,36 +1074,37 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
           FORMAT:
           Return the Korean prompt text starting with the identity lock instruction, then organized by categories. Do not add introductions. Do NOT include descriptions of the model's identity, face, or clothing in the text prompt, as they are locked by the image references.
         ` },
-        { inlineData: { mimeType: "image/jpeg", data: compRef.split(',')[1] } },
-        { inlineData: { mimeType: "image/jpeg", data: compTarget.split(',')[1] } }
-      ];
-
-      for (const detailImg of productDetailImages) {
+          { inlineData: { mimeType: "image/jpeg", data: compRef.split(',')[1] } },
+          { inlineData: { mimeType: "image/jpeg", data: compTarget.split(',')[1] } }
+        ];
+        for (const detailImg of productDetailImages) {
           const compDetail = await compressImage(detailImg, 1024, 0.8);
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compDetail.split(',')[1] } });
-      }
-
-      if (faceImages.length > 0) {
+        }
+        if (faceImages.length > 0) {
           const compFace = await compressImage(faceImages[0], 1024, 0.8);
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
+        }
       }
 
       const response = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`, 
+        `https://generativelanguage.googleapis.com/v1beta/models/${ANALYSIS_MODEL_ID}:generateContent?key=${apiKeyToUse}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contents: [{ role: 'user', parts }] })
         }
       );
-      
+
       const data = await response.json();
       if (data.error) throw new Error(`API Error: ${data.error.message}`);
 
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) {
         setPrompt(text.trim());
-        showNotification(faceImages.length > 0 ? "얼굴 이미지 기반 이목구비 고정 프롬프트가 생성되었습니다." : "이목구비 고정 지시가 포함된 프롬프트가 생성되었습니다.");
+        showNotification(isMulti
+          ? `${models.length}-모델 캠페인 프롬프트가 생성되었습니다.`
+          : (faceImages.length > 0 ? "얼굴 이미지 기반 이목구비 고정 프롬프트가 생성되었습니다." : "이목구비 고정 지시가 포함된 프롬프트가 생성되었습니다."));
       } else {
         throw new Error("프롬프트 생성 실패: 응답에 텍스트가 없습니다.");
       }
