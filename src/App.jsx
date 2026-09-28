@@ -1454,15 +1454,12 @@ ${mapping}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-[30vh] shrink-0">
 
           <div className="flex flex-col gap-4 min-h-0">
-            <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span><span className="text-sm font-bold uppercase truncate">{reference.name}</span></div>
+            <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">레퍼런스</span><span className="text-sm font-bold uppercase truncate">{reference.name}</span></div>
             <div className="flex-1 border border-black bg-white p-2 relative min-h-[240px] lg:min-h-0"><img src={reference.image} className="w-full h-full object-contain" alt="Style Reference" /></div>
           </div>
           
-          <div className="flex flex-col gap-2 min-h-0">
-            <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Body & Clothes)</span></div>
-                <span className="text-[11px] text-gray-500 font-bold uppercase">의상과 전신 실루엣 기준 (필수)</span>
-            </div>
+          <div className="flex flex-col gap-4 min-h-0">
+            <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">코디컷</span></div>
             <div onClick={() => document.getElementById('target-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleTargetUpload(e.dataTransfer.files[0]); }} className="flex-1 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative min-h-[240px] lg:min-h-0 overflow-hidden">
               {targetImage ? (<img src={targetImage} className="w-full h-full object-contain" alt="Target" />) : (<div className="text-center p-8 text-gray-400"><UploadCloud className="w-12 h-12 mx-auto mb-4" /><p className="font-bold text-sm">의상/전신 이미지 업로드</p></div>)}
               <input id="target-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleTargetUpload(e.target.files[0])} />
@@ -1471,10 +1468,7 @@ ${mapping}
           </div>
 
           <div className="flex flex-col gap-4 min-h-0">
-            <div className="flex flex-col gap-1 mb-2">
-                <div className="flex items-center gap-2"><span className="bg-gray-800 text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Face Detail)</span></div>
-                <span className="text-[11px] text-gray-500 font-bold uppercase">이목구비 일관성을 위한 다각도 얼굴 사진 (다중 선택 가능)</span>
-            </div>
+            <div className="flex items-center gap-2 mb-2"><span className="bg-gray-800 text-white px-3 py-1 text-sm font-bold uppercase">모델이미지</span></div>
             
             {faceImages.length > 0 ? (
                 <div className="flex-1 flex flex-col gap-2 border-2 border-dashed border-gray-400 bg-white p-2 min-h-[240px] lg:min-h-0">
