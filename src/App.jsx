@@ -912,7 +912,9 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
     "화장기가 옅은 투명한 피부",
     "인위적이지 않은 일상적인 빛",
     "보정 없는 RAW 사진 느낌",
-    "스냅샷 같은 찰나의 순간"
+    "스냅샷 같은 찰나의 순간",
+    "촬영자와 친한 사이처럼 장난스럽고 친근한 표정",
+    "활짝 웃는 표정"
   ];
   
   const photographerOptions = [
