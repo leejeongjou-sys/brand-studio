@@ -1498,18 +1498,17 @@ ${mapping}
           </div>
           </div> {/* end inner 3-col grid */}
 
-          {/* 타깃 포커스 · 디테일 컷: 이미지 영역(50%) 바로 아래 */}
+          {/* 타깃 포커스 · 디테일 컷: 이미지 입력 영역 바로 아래 */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <div className="flex flex-col gap-2">
               <span className="text-[11px] text-gray-500 font-bold uppercase">타깃 포커스</span>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2">
                 <button onClick={() => setTargetFocus('upper')} className={`flex-1 py-2 text-[11px] font-bold uppercase transition-colors border ${targetFocus === 'upper' ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>상의/전신 포커스</button>
                 <button onClick={() => setTargetFocus('lower')} className={`flex-1 py-2 text-[11px] font-bold uppercase transition-colors border ${targetFocus === 'lower' ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>하의 포커스 (하반신)</button>
             </div>
             </div>
             <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2"><span className="bg-gray-200 text-black px-3 py-1 text-sm font-bold uppercase">PRODUCT DETAILS (선택)</span></div>
                 <span className="text-[11px] text-gray-500 font-bold uppercase">원단 질감, 재봉선 등 디테일 컷 (최대 3장)</span>
             </div>
             <div className="flex gap-2 items-start bg-white border border-gray-300 p-2 shrink-0">
