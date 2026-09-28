@@ -1195,13 +1195,13 @@ FORMAT:
           faceRuleText = `
     [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
     - SOURCE: Image ${currentImgIdx}+ (Face Detail Images)
-    - MANDATORY: 100% Match Required in EVERY shot, including full-body shots where the face is small. You MUST preserve the exact proportions of eyes, nose, lips, jawline, and skin tone from these face images. Keep the exact hairstyle.
+    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact proportions of eyes, nose, lips, jawline, and skin tone from these face images. Keep the exact hairstyle.
     - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
       } else {
           faceRuleText = `
     [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
     - SOURCE: Image 1 (Target Subject)
-    - MANDATORY: 100% Match Required in EVERY shot, including full-body shots where the face is small. You MUST preserve the exact facial features and identity shown in Image 1.
+    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact facial features and identity shown in Image 1.
     - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
       }
 
@@ -1243,10 +1243,8 @@ FORMAT:
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compDetail.split(',')[1] } });
       }
 
-      const compFaceImages = [];
       for (const faceImg of faceImages) {
           const compFace = await compressImage(faceImg, 1024, 0.8);
-          compFaceImages.push(compFace);
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
       }
 
@@ -1337,9 +1335,7 @@ ${mapping}
       // ─── END MULTI-MODEL OVERRIDE ───
 
       // 룩북 4장 = 전신 2장 + 클로즈업 2장. 클로즈업도 허리선(waistline)은 반드시 프레임 안에 들어와야 한다.
-      const FULL_BODY_RULE = "FULL-BODY SHOT: the ENTIRE body from the top of the head down to the feet/shoes MUST be visible inside the frame, with a small margin above the head and below the feet. Do NOT crop the head, hands, legs or feet. This overrides the reference image's framing distance if the reference is cropped tighter. "
-        + "FULL-BODY IDENTITY LOCK: in full-body shots the face is small, which is exactly where identity drift happens — the face MUST still be the SAME person as the face references (same eye shape, nose, lips, jawline, face shape, skin tone, hairline and hairstyle), NOT a generic or averaged model face. "
-        + "Keep the subject large in the frame (the body fills roughly 85–90% of the frame height, not a tiny figure in a wide scene), keep the face in sharp focus with clear detail, facing the camera or at a slight 3/4 angle, and never hidden by hair, hands, hats, sunglasses or deep shadow.";
+      const FULL_BODY_RULE = "FULL-BODY SHOT: the ENTIRE body from the top of the head down to the feet/shoes MUST be visible inside the frame, with a small margin above the head and below the feet. Do NOT crop the head, hands, legs or feet. This overrides the reference image's framing distance if the reference is cropped tighter.";
       const WAIST_RULE = "MANDATORY WAISTLINE: the model's waistline (the waistband / belt line) MUST be fully visible inside the frame. NEVER crop the frame above the waist — a head-and-shoulders or chest-up crop is a hard failure.";
 
       let var3Desc = `Variation 3 (CLOSE-UP 1): Eye-level waist-up close-up in the EXACT SAME lighting and background environment. Frame from just above the head down to slightly below the waistline (upper hips). The camera is at the subject's chest/eye level, focusing on the face and upper garment details. ${WAIST_RULE}`;
@@ -1364,51 +1360,6 @@ ${mapping}
           var4Desc
       ];
       const lookbookLabels = ['전신 1', '전신 2', '클로즈업 1', '클로즈업 2'];
-      const FULL_BODY_COUNT = 2; // lookbookVariations 앞 2장이 전신
-
-      // 전신 컷은 얼굴이 작아 인물이 흐려지기 쉬우므로, 생성 후 얼굴만 참조 사진에 맞춰 한 번 더 보정한다.
-      // 보정이 실패하면 원본 전신 컷을 그대로 쓴다.
-      const faceRefGroups = isMulti && compModels
-        ? compModels.map(cm => ({ name: cm.name, images: cm.compFaces.length > 0 ? cm.compFaces : [cm.compTarget] }))
-        : [{ name: null, images: compFaceImages.length > 0 ? compFaceImages : [compTarget] }];
-
-      const refineFullBodyFace = async (baseDataUrl) => {
-          const refParts = [];
-          const refLines = [];
-          let idx = 2;
-          faceRefGroups.forEach((g, gi) => {
-              const start = idx;
-              g.images.forEach(img => { refParts.push({ inlineData: { mimeType: 'image/jpeg', data: img.split(',')[1] } }); idx++; });
-              const range = g.images.length > 1 ? `Images ${start}–${idx - 1}` : `Image ${start}`;
-              refLines.push(isMulti
-                ? `- The ${gi === 0 ? '1st from LEFT (leftmost)' : gi === 1 ? '2nd from LEFT' : '3rd from LEFT'} person in Image 1 is ${g.name}: face reference = ${range}.`
-                : `- Face reference for the person in Image 1 = ${range}.`);
-          });
-          const refineText = `
-    TASK: FACE IDENTITY RESTORATION on a finished full-body fashion lookbook photo.
-
-    Image 1 = the finished full-body photo (the BASE).
-${refLines.join('\n')}
-
-    In full-body shots the face is small and its identity has drifted. Redraw ONLY the face${isMulti ? 's' : ''} (facial features, face shape, skin tone, hairline and hairstyle) so ${isMulti ? 'each person is' : 'the person is'} unmistakably the SAME person as the face reference — same eye shape and spacing, nose bridge and tip, lip shape, jawline, chin, cheekbones and skin tone.
-
-    KEEP EVERYTHING ELSE IDENTICAL TO IMAGE 1:
-    - same framing, crop, camera angle and full-body composition (head to feet stays in frame)
-    - same pose, head angle, gaze direction and body proportions
-    - same outfit, accessories, background, lighting, shadows and color grading
-    - the face must be lit by the same scene lighting as Image 1 and blend seamlessly (no pasted look, no sharpness or color mismatch)
-    - output the full image at the same aspect ratio; do NOT zoom in on the face
-        `;
-          const { dataUrl } = await geminiGenerateImage({
-            primaryModelId: lookbookModelId,
-            fallbackModelId: null,
-            apiKey: settings.apiKey || DEFAULT_API_KEY,
-            contentsParts: [{ text: refineText }, { inlineData: { mimeType: 'image/jpeg', data: baseDataUrl.split(',')[1] } }, ...refParts],
-            aspectRatio,
-            qualityMode: settings.highRes ? 'ultra' : 'std'
-          });
-          return dataUrl;
-      };
 
       // 버튼별로 2장만 생성: 전신 = 0·1번, 클로즈업 = 2·3번 variation
       const selectedIdx = kind === 'full' ? [0, 1] : [2, 3];
@@ -1429,15 +1380,6 @@ ${refLines.join('\n')}
                     aspectRatio,
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
-                  if (i < FULL_BODY_COUNT) {
-                      try {
-                          resolve(await refineFullBodyFace(dataUrl));
-                      } catch (refineErr) {
-                          console.warn('[Lookbook] 전신 얼굴 보정 실패 — 원본 사용:', refineErr);
-                          resolve(dataUrl);
-                      }
-                      return;
-                  }
                   resolve(dataUrl);
               } catch (e) {
                   reject(e);
@@ -1509,57 +1451,33 @@ ${refLines.join('\n')}
             )}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-[50vh] shrink-0">
 
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 min-h-0">
             <div className="flex items-center gap-2 mb-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">STYLE BASE</span><span className="text-sm font-bold uppercase truncate">{reference.name}</span></div>
-            <div className="flex-1 border border-black bg-white p-2 relative min-h-[400px]"><img src={reference.image} className="w-full h-full object-contain" alt="Style Reference" /></div>
+            <div className="flex-1 border border-black bg-white p-2 relative min-h-[240px] lg:min-h-0"><img src={reference.image} className="w-full h-full object-contain" alt="Style Reference" /></div>
           </div>
           
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1 mb-2">
+          <div className="flex flex-col gap-2 min-h-0">
+            <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2"><span className="bg-black text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Body & Clothes)</span></div>
                 <span className="text-[11px] text-gray-500 font-bold uppercase">의상과 전신 실루엣 기준 (필수)</span>
             </div>
-            <div onClick={() => document.getElementById('target-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleTargetUpload(e.dataTransfer.files[0]); }} className="flex-1 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative min-h-[300px] overflow-hidden">
+            <div onClick={() => document.getElementById('target-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleTargetUpload(e.dataTransfer.files[0]); }} className="flex-1 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative min-h-[240px] lg:min-h-0 overflow-hidden">
               {targetImage ? (<img src={targetImage} className="w-full h-full object-contain" alt="Target" />) : (<div className="text-center p-8 text-gray-400"><UploadCloud className="w-12 h-12 mx-auto mb-4" /><p className="font-bold text-sm">의상/전신 이미지 업로드</p></div>)}
               <input id="target-upload" type="file" className="hidden" accept="image/*" onChange={(e) => handleTargetUpload(e.target.files[0])} />
             </div>
 
-            <div className="flex gap-2 mt-1 mb-1">
-                <button onClick={() => setTargetFocus('upper')} className={`flex-1 py-2 text-[11px] font-bold uppercase transition-colors border ${targetFocus === 'upper' ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>상의/전신 포커스</button>
-                <button onClick={() => setTargetFocus('lower')} className={`flex-1 py-2 text-[11px] font-bold uppercase transition-colors border ${targetFocus === 'lower' ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>하의 포커스 (하반신)</button>
-            </div>
-
-            <div className="flex flex-col gap-1 mt-1 mb-1">
-                <div className="flex items-center gap-2"><span className="bg-gray-200 text-black px-3 py-1 text-sm font-bold uppercase">PRODUCT DETAILS (선택)</span></div>
-                <span className="text-[11px] text-gray-500 font-bold uppercase">원단 질감, 재봉선 등 디테일 컷 (최대 3장)</span>
-            </div>
-            <div className="flex gap-2 items-start bg-white border border-gray-300 p-2 min-h-[80px]">
-               {productDetailImages.map((img, idx) => (
-                  <div key={idx} className="relative w-16 h-16 border border-gray-300 shrink-0 bg-white">
-                     <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
-                     <button onClick={() => setProductDetailImages(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
-                  </div>
-               ))}
-               {productDetailImages.length < 3 && (
-                  <div onClick={() => document.getElementById('lookbook-detail-upload').click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleDetailUpload(e.dataTransfer.files); }} className="w-16 h-16 border-2 border-dashed border-gray-300 bg-gray-50 cursor-pointer flex flex-col items-center justify-center shrink-0 hover:border-black transition-colors">
-                     <Plus className="w-4 h-4 text-gray-400 mb-0.5"/>
-                     <span className="text-[8px] font-bold text-gray-500 text-center leading-tight">디테일<br/>추가</span>
-                     <input id="lookbook-detail-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleDetailUpload(e.target.files)} />
-                  </div>
-               )}
-            </div>
           </div>
 
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 min-h-0">
             <div className="flex flex-col gap-1 mb-2">
                 <div className="flex items-center gap-2"><span className="bg-gray-800 text-white px-3 py-1 text-sm font-bold uppercase">TARGET (Face Detail)</span></div>
                 <span className="text-[11px] text-gray-500 font-bold uppercase">이목구비 일관성을 위한 다각도 얼굴 사진 (다중 선택 가능)</span>
             </div>
             
             {faceImages.length > 0 ? (
-                <div className="flex-1 flex flex-col gap-2 border-2 border-dashed border-gray-400 bg-white p-2 min-h-[400px]">
+                <div className="flex-1 flex flex-col gap-2 border-2 border-dashed border-gray-400 bg-white p-2 min-h-[240px] lg:min-h-0">
                     <div className="flex-1 w-full h-full relative border border-gray-200">
                         <img src={faceImages[0]} className="w-full h-full object-contain absolute inset-0" alt="Primary Face" />
                         <button onClick={() => setFaceImages(prev => prev.slice(1))} className="absolute top-2 right-2 p-1.5 bg-black text-white rounded-full hover:bg-gray-800 z-10"><X className="w-4 h-4"/></button>
@@ -1578,56 +1496,48 @@ ${refLines.join('\n')}
                     <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
                 </div>
             ) : (
-                <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleFaceUpload(e.dataTransfer.files); }} className="flex-1 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative min-h-[400px] overflow-hidden">
+                <div onClick={() => document.getElementById('face-upload').click()} onDragOver={e => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleFaceUpload(e.dataTransfer.files); }} className="flex-1 border-2 border-dashed border-gray-400 bg-white hover:border-black cursor-pointer flex items-center justify-center relative min-h-[240px] lg:min-h-0 overflow-hidden">
                     <div className="text-center p-8 text-gray-400"><UserCheck className="w-12 h-12 mx-auto mb-4" /><p className="font-bold text-sm">얼굴/디테일 다중 업로드</p><p className="text-[10px] mt-1">이목구비를 완벽히 카피합니다.</p></div>
                     <input id="face-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleFaceUpload(e.target.files)} />
                 </div>
             )}
           </div>
           </div> {/* end inner 3-col grid */}
-        </div>
-      </div>
 
-      <div className="w-1/2 bg-white border-l border-black flex flex-col z-20 shadow-xl shrink-0 h-full">
-        <div className="h-16 px-6 border-b border-black flex items-center justify-between shrink-0">
-            <h2 className="text-xl font-black uppercase">Generator</h2>
-            <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6" /></button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
-          
-          {generatedImages.length > 0 && (
-            <div className="flex flex-col gap-4 animate-fade-in border-b-2 border-black pb-8 mb-2">
-              <div className="flex items-center gap-2 mb-1"><CheckCircle2 className="w-5 h-5 text-black" /><span className="text-sm font-bold uppercase text-black">Generation Complete ({currentImgIndex + 1}/{generatedImages.length})</span></div>
-              <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
-                {generatedLabels[currentImgIndex] && (
-                  <span className="absolute top-2 left-2 z-10 bg-black text-white text-[11px] font-bold px-2 py-1">{generatedLabels[currentImgIndex]}</span>
-                )}
-                <img src={generatedImages[currentImgIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated" />
-                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
-                
-                {generatedImages.length > 1 && (
-                  <>
-                    <button onClick={(e) => { e.stopPropagation(); setCurrentImgIndex(p => Math.max(0, p - 1)); }} disabled={currentImgIndex === 0} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
-                      <ChevronLeft className="w-6 h-6" />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setCurrentImgIndex(p => Math.min(generatedImages.length - 1, p + 1)); }} disabled={currentImgIndex === generatedImages.length - 1} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
-                      <ChevronRight className="w-6 h-6" />
-                    </button>
-                    <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2 z-10">
-                       {generatedImages.map((_, i) => (
-                          <div key={i} className={`w-2 h-2 rounded-full ${i === currentImgIndex ? 'bg-black shadow-[0_0_2px_white]' : 'bg-gray-400 shadow-[0_0_2px_black]'}`} />
-                       ))}
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="flex gap-2">
-                 <button onClick={handleDownloadImage} className="w-full bg-black text-white px-4 py-3 text-sm font-bold uppercase hover:bg-gray-800 flex items-center justify-center gap-2" title="현재 이미지 다운로드"><Download className="w-4 h-4" /> 다운로드 (로컬 저장)</button>
-              </div>
+          {/* 타깃 포커스 · 디테일 컷: 이미지 영역(50%) 바로 아래 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <div className="flex flex-col gap-2">
+              <span className="text-[11px] text-gray-500 font-bold uppercase">타깃 포커스</span>
+            <div className="flex gap-2">
+                <button onClick={() => setTargetFocus('upper')} className={`flex-1 py-2 text-[11px] font-bold uppercase transition-colors border ${targetFocus === 'upper' ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>상의/전신 포커스</button>
+                <button onClick={() => setTargetFocus('lower')} className={`flex-1 py-2 text-[11px] font-bold uppercase transition-colors border ${targetFocus === 'lower' ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>하의 포커스 (하반신)</button>
             </div>
-          )}
+            </div>
+            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2"><span className="bg-gray-200 text-black px-3 py-1 text-sm font-bold uppercase">PRODUCT DETAILS (선택)</span></div>
+                <span className="text-[11px] text-gray-500 font-bold uppercase">원단 질감, 재봉선 등 디테일 컷 (최대 3장)</span>
+            </div>
+            <div className="flex gap-2 items-start bg-white border border-gray-300 p-2 shrink-0">
+               {productDetailImages.map((img, idx) => (
+                  <div key={idx} className="relative w-16 h-16 border border-gray-300 shrink-0 bg-white">
+                     <img src={img} className="w-full h-full object-cover" alt={`Detail ${idx+1}`} />
+                     <button onClick={() => setProductDetailImages(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 bg-black rounded-full text-white p-0.5 hover:bg-gray-800"><X className="w-3 h-3"/></button>
+                  </div>
+               ))}
+               {productDetailImages.length < 3 && (
+                  <div onClick={() => document.getElementById('lookbook-detail-upload').click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleDetailUpload(e.dataTransfer.files); }} className="w-16 h-16 border-2 border-dashed border-gray-300 bg-gray-50 cursor-pointer flex flex-col items-center justify-center shrink-0 hover:border-black transition-colors">
+                     <Plus className="w-4 h-4 text-gray-400 mb-0.5"/>
+                     <span className="text-[8px] font-bold text-gray-500 text-center leading-tight">디테일<br/>추가</span>
+                     <input id="lookbook-detail-upload" type="file" multiple className="hidden" accept="image/*" onChange={(e) => handleDetailUpload(e.target.files)} />
+                  </div>
+               )}
+            </div>
+            </div>
+          </div>
 
-          <div className="flex flex-col gap-6">
+          {/* 프롬프트: 이미지 입력 영역 하단 */}
+          <div className="border-t border-black pt-4 pb-8">
             <div>
                 <div className="flex justify-between items-end mb-2">
                     <label className="text-sm font-bold uppercase text-gray-800 block">프롬프트 (Prompt)</label>
@@ -1651,7 +1561,7 @@ ${refLines.join('\n')}
                 <textarea value={prompt || ''} onChange={(e) => setPrompt(e.target.value)} className="w-full h-32 p-3 border border-black text-sm focus:outline-none bg-gray-50 font-medium leading-relaxed" placeholder="여기에 지시사항을 입력하세요..." />
             </div>
             
-            <div className="flex flex-col gap-2 border-t border-dashed border-gray-300 pt-4 mt-[-8px]">
+            <div className="flex flex-col gap-2 border-t border-dashed border-gray-300 pt-4 mt-4">
                 <span className="text-xs font-bold uppercase text-gray-500 flex items-center gap-1"><MessageSquarePlus className="w-4 h-4"/> AI Assistance</span>
                 <div className="flex gap-2">
                     <input type="text" value={refineRequest} onChange={(e) => setRefineRequest(e.target.value)} placeholder="수정 요청 (예: 배경을 더 밝게...)" className="flex-1 p-3 border border-gray-300 text-sm focus:border-black outline-none bg-white" onKeyDown={(e) => e.key === 'Enter' && handleRefinePrompt()} />
@@ -1660,7 +1570,64 @@ ${refLines.join('\n')}
                     </button>
                 </div>
             </div>
+          </div>
+        </div>
+      </div>
 
+      <div className="w-1/2 bg-white border-l border-black flex flex-col z-20 shadow-xl shrink-0 h-full">
+        <div className="h-16 px-6 border-b border-black flex items-center justify-between shrink-0">
+            <h2 className="text-xl font-black uppercase">Generator</h2>
+            <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
+          
+          {generatedImages.length === 0 && (
+            <div className="h-[70vh] shrink-0 border-2 border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
+              {isGenerating ? <Loader2 className="w-10 h-10 animate-spin" /> : <ImageIcon className="w-10 h-10" />}
+              <span className="text-sm font-bold">{isGenerating ? '생성 중...' : '생성 결과가 여기에 크게 표시됩니다'}</span>
+            </div>
+          )}
+          {generatedImages.length > 0 && (
+            <div className="flex flex-col gap-3 animate-fade-in border-b-2 border-black pb-6 mb-2">
+              <div className="flex items-center gap-2 mb-1"><CheckCircle2 className="w-5 h-5 text-black" /><span className="text-sm font-bold uppercase text-black">Generation Complete ({currentImgIndex + 1}/{generatedImages.length})</span></div>
+              <div className="h-[70vh] shrink-0 border border-black bg-gray-100 relative group">
+                {generatedLabels[currentImgIndex] && (
+                  <span className="absolute top-2 left-2 z-10 bg-black text-white text-[11px] font-bold px-2 py-1">{generatedLabels[currentImgIndex]}</span>
+                )}
+                <img src={generatedImages[currentImgIndex]} className="w-full h-full object-contain cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated" />
+                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
+                
+                {generatedImages.length > 1 && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); setCurrentImgIndex(p => Math.max(0, p - 1)); }} disabled={currentImgIndex === 0} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); setCurrentImgIndex(p => Math.min(generatedImages.length - 1, p + 1)); }} disabled={currentImgIndex === generatedImages.length - 1} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 hover:bg-white text-black rounded-full disabled:opacity-30 z-10 shadow-md">
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                    <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2 z-10">
+                       {generatedImages.map((_, i) => (
+                          <div key={i} className={`w-2 h-2 rounded-full ${i === currentImgIndex ? 'bg-black shadow-[0_0_2px_white]' : 'bg-gray-400 shadow-[0_0_2px_black]'}`} />
+                       ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex gap-2 overflow-x-auto custom-scrollbar">
+                {generatedImages.map((src, i) => (
+                  <button key={i} onClick={() => setCurrentImgIndex(i)} className={`relative w-20 h-24 shrink-0 border-2 ${i === currentImgIndex ? 'border-black' : 'border-transparent opacity-70 hover:opacity-100'}`}>
+                    <img src={src} className="w-full h-full object-cover" alt={generatedLabels[i] || `Result ${i + 1}`} />
+                    {generatedLabels[i] && <span className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-[10px] font-bold py-0.5">{generatedLabels[i]}</span>}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                 <button onClick={handleDownloadImage} className="w-full bg-black text-white px-4 py-3 text-sm font-bold uppercase hover:bg-gray-800 flex items-center justify-center gap-2" title="현재 이미지 다운로드"><Download className="w-4 h-4" /> 다운로드 (로컬 저장)</button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
                 <label className="text-sm font-bold uppercase text-gray-800">AI Model</label>
                 <div className="flex gap-2">
