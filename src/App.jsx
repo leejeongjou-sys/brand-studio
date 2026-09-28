@@ -905,7 +905,6 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   const [selectedPhotographer, setSelectedPhotographer] = useState('');
 
   const lookbookSnippets = [
-    "이목구비 완벽 고정",
     "카메라를 의식하지 않는 시선",
     "바람에 살짝 날리는 잔머리",
     "긴장이 풀린 자연스러운 자세",
