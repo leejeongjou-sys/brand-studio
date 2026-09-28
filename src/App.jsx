@@ -64,10 +64,16 @@ const getAppId = () => {
 
 // Gemini Image Models
 const MODEL_OPTIONS = {
-  PRO: 'gemini-3.1-flash-image-preview'
+  PRO: 'gemini-3.1-flash-image'
 };
 
-const ANALYSIS_MODEL_ID = 'gemini-3.1-flash-image-preview';
+// 룩북 전용 이미지 모델 선택지 (금액은 2K / 4K 1장 기준, Gemini API 유료 요금)
+const LOOKBOOK_MODELS = [
+  { id: 'gemini-3.1-flash-image', key: 'flash', label: 'Nano Banana 2', desc: '빠름 · 2K $0.101 / 4K $0.151' },
+  { id: 'gemini-3-pro-image', key: 'pro', label: 'Nano Banana Pro', desc: '고품질·인물고정 ↑ · 2K $0.134 / 4K $0.24' }
+];
+
+const ANALYSIS_MODEL_ID ='gemini-3.1-flash-image';
 
 // --- SINGLETON FIREBASE INITIALIZATION ---
 let firebaseApp;
@@ -249,7 +255,7 @@ const geminiGenerateImage = async ({ primaryModelId, fallbackModelId, apiKey, co
   }
 };
 
-const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image-preview', apiKey, baseImage, detailImages = [], prompt }) => {
+const geminiEditImage = async ({ modelId = 'gemini-3.1-flash-image', apiKey, baseImage, detailImages = [], prompt }) => {
   const parts = [{ text: prompt }];
   parts.push({ inlineData: { mimeType: "image/jpeg", data: baseImage.split(',')[1] } });
 
@@ -878,6 +884,14 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   // ─── End multi-model state ───
   const [generatedImages, setGeneratedImages] = useState([]);
   const [generatedLabels, setGeneratedLabels] = useState([]); // 전신 1·2 / 클로즈업 1·2 (실패한 컷은 빠진다)
+  const [lookbookModelKey, setLookbookModelKey] = useState(() => {
+    try { return localStorage.getItem('lookbookModel') === 'pro' ? 'pro' : 'flash'; } catch { return 'flash'; }
+  });
+  const selectLookbookModel = (key) => {
+    setLookbookModelKey(key);
+    try { localStorage.setItem('lookbookModel', key); } catch { /* 저장 불가 환경은 무시 */ }
+  };
+  const lookbookModelId = (LOOKBOOK_MODELS.find(m => m.key === lookbookModelKey) || LOOKBOOK_MODELS[0]).id;
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
@@ -1383,7 +1397,7 @@ ${refLines.join('\n')}
     - output the full image at the same aspect ratio; do NOT zoom in on the face
         `;
           const { dataUrl } = await geminiGenerateImage({
-            primaryModelId: MODEL_OPTIONS.PRO,
+            primaryModelId: lookbookModelId,
             fallbackModelId: null,
             apiKey: settings.apiKey || DEFAULT_API_KEY,
             contentsParts: [{ text: refineText }, { inlineData: { mimeType: 'image/jpeg', data: baseDataUrl.split(',')[1] } }, ...refParts],
@@ -1401,7 +1415,7 @@ ${refLines.join('\n')}
                   localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\nFRAMING PRIORITY: For THIS variation, the framing above (full body vs. waist-up close-up) takes precedence over any "same framing distance" instruction earlier in this prompt.\nCRITICAL SCENE LOCK: The lighting, shadows, and background MUST remain mathematically identical to the other variations. ONLY change the camera angle or pose. Maintain a slightly unique, natural micro-expression while STRICTLY adhering to the Three Pillars.` };
                   
                   const { dataUrl } = await geminiGenerateImage({ 
-                    primaryModelId: MODEL_OPTIONS.PRO, 
+                    primaryModelId: lookbookModelId,
                     fallbackModelId: null, 
                     apiKey: settings.apiKey || DEFAULT_API_KEY, 
                     contentsParts: localParts,
@@ -1629,6 +1643,18 @@ ${refLines.join('\n')}
                     <button onClick={handleRefinePrompt} disabled={isRefining || !refineRequest} className="px-5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-sm font-bold transition-colors">
                         {isRefining ? <Loader2 className="w-4 h-4 animate-spin" /> : '수정'}
                     </button>
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+                <label className="text-sm font-bold uppercase text-gray-800">AI Model</label>
+                <div className="flex gap-2">
+                    {LOOKBOOK_MODELS.map(m => (
+                        <button key={m.key} onClick={() => selectLookbookModel(m.key)} disabled={isGenerating} className={`flex-1 py-3 px-2 text-left border disabled:opacity-50 ${lookbookModelKey === m.key ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-300 hover:bg-gray-50'}`}>
+                            <span className="block text-sm font-bold">{m.label}</span>
+                            <span className={`block text-[11px] mt-1 ${lookbookModelKey === m.key ? 'text-gray-300' : 'text-gray-500'}`}>{m.desc}</span>
+                        </button>
+                    ))}
                 </div>
             </div>
 
