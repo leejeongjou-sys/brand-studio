@@ -1210,7 +1210,8 @@ FORMAT:
       if (selectedPhotographer) {
           const selected = photographerOptions.find(p => p.id === selectedPhotographer);
           if (selected) {
-              photoStyleDesc = `\n[POST-PROCESSING & COLOR GRADING]\n- Apply the color grading, film texture, and retouching style of: ${selected.style}\n- CRITICAL: Apply this ONLY as a final post-processing filter. Do NOT alter the underlying facial identity, composition, or structural lighting.`;
+              photoStyleDesc = `\n[POST-PROCESSING & COLOR GRADING]\n- Apply the color grading, film texture, and retouching style of: ${selected.style}\n- CRITICAL: Apply this ONLY as a final post-processing filter. Do NOT alter the underlying facial identity, composition, or structural lighting.
+- PRIORITY: For color grading, tone, film texture and retouching ONLY, this photographer style OVERRIDES any post-processing / color-grade / 후보정 description in the creative direction above and the reference image's own color grade. Everything else in the creative direction still applies.`;
           }
       }
 
@@ -1329,6 +1330,7 @@ ${mapping}
 
     User's creative direction:
     ${prompt}
+    ${photoStyleDesc}
 
     ${HIGH_END_STYLE_PROMPT}
         ` };
