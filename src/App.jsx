@@ -877,6 +877,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   const isMulti = models.length > 1;
   // ─── End multi-model state ───
   const [generatedImages, setGeneratedImages] = useState([]);
+  const [generatedLabels, setGeneratedLabels] = useState([]); // 전신 1·2 / 클로즈업 1·2 (실패한 컷은 빠진다)
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
@@ -1177,13 +1178,13 @@ FORMAT:
           faceRuleText = `
     [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
     - SOURCE: Image ${currentImgIdx}+ (Face Detail Images)
-    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact proportions of eyes, nose, lips, jawline, and skin tone from these face images. Keep the exact hairstyle.
+    - MANDATORY: 100% Match Required in EVERY shot, including full-body shots where the face is small. You MUST preserve the exact proportions of eyes, nose, lips, jawline, and skin tone from these face images. Keep the exact hairstyle.
     - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
       } else {
           faceRuleText = `
     [RULE 3: TARGET FACE LOCK (HIGHEST PRIORITY)]
     - SOURCE: Image 1 (Target Subject)
-    - MANDATORY: 100% Match Required. If the face is visible in the frame, you MUST preserve the exact facial features and identity shown in Image 1.
+    - MANDATORY: 100% Match Required in EVERY shot, including full-body shots where the face is small. You MUST preserve the exact facial features and identity shown in Image 1.
     - PROHIBITED: DO NOT generate a new face or alter the identity. Facial consistency is the single most important requirement.`;
       }
 
@@ -1225,8 +1226,10 @@ FORMAT:
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compDetail.split(',')[1] } });
       }
 
+      const compFaceImages = [];
       for (const faceImg of faceImages) {
           const compFace = await compressImage(faceImg, 1024, 0.8);
+          compFaceImages.push(compFace);
           parts.push({ inlineData: { mimeType: "image/jpeg", data: compFace.split(',')[1] } });
       }
 
@@ -1316,43 +1319,104 @@ ${mapping}
       }
       // ─── END MULTI-MODEL OVERRIDE ───
 
-      let var3Desc = "Variation 3: Eye-level Close-up shot (head and shoulders) in the EXACT SAME lighting and background environment. The camera is exactly at the subject's eye level, focusing intimately on the face and upper body details.";
-      let var4Desc = "Variation 4: High-angle Close-up shot in the EXACT SAME lighting and background environment. The camera is positioned above the subject, looking down at the face and upper body, creating a dynamic perspective.";
+      // 룩북 4장 = 전신 2장 + 클로즈업 2장. 클로즈업도 허리선(waistline)은 반드시 프레임 안에 들어와야 한다.
+      const FULL_BODY_RULE = "FULL-BODY SHOT: the ENTIRE body from the top of the head down to the feet/shoes MUST be visible inside the frame, with a small margin above the head and below the feet. Do NOT crop the head, hands, legs or feet. This overrides the reference image's framing distance if the reference is cropped tighter. "
+        + "FULL-BODY IDENTITY LOCK: in full-body shots the face is small, which is exactly where identity drift happens — the face MUST still be the SAME person as the face references (same eye shape, nose, lips, jawline, face shape, skin tone, hairline and hairstyle), NOT a generic or averaged model face. "
+        + "Keep the subject large in the frame (the body fills roughly 85–90% of the frame height, not a tiny figure in a wide scene), keep the face in sharp focus with clear detail, facing the camera or at a slight 3/4 angle, and never hidden by hair, hands, hats, sunglasses or deep shadow.";
+      const WAIST_RULE = "MANDATORY WAISTLINE: the model's waistline (the waistband / belt line) MUST be fully visible inside the frame. NEVER crop the frame above the waist — a head-and-shoulders or chest-up crop is a hard failure.";
+
+      let var3Desc = `Variation 3 (CLOSE-UP 1): Eye-level waist-up close-up in the EXACT SAME lighting and background environment. Frame from just above the head down to slightly below the waistline (upper hips). The camera is at the subject's chest/eye level, focusing on the face and upper garment details. ${WAIST_RULE}`;
+      let var4Desc = `Variation 4 (CLOSE-UP 2): Slightly high-angle waist-up close-up in the EXACT SAME lighting and background environment. Frame from just above the head down to slightly below the waistline (upper hips). The camera is positioned a little above eye level, looking down at the face and upper body with a natural, different pose from Close-up 1. ${WAIST_RULE}`;
 
       if (targetFocus === 'lower') {
-          var3Desc = "Variation 3: Lower body close-up shot (waist down to ankles) in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details.";
-          var4Desc = "Variation 4: High-angle Lower body shot in the EXACT SAME lighting and background environment. The camera is positioned above the waist, looking down at the pants/skirt and legs, creating a dynamic focus on the lower garments.";
+          var3Desc = `Variation 3 (CLOSE-UP 1): Lower body close-up from the waistline down to the ankles in the EXACT SAME lighting and background environment. The camera is at waist or thigh level, focusing explicitly on the pants, skirt, and lower body garment details. ${WAIST_RULE}`;
+          var4Desc = `Variation 4 (CLOSE-UP 2): Slightly high-angle lower body shot from the waistline down to the feet in the EXACT SAME lighting and background environment. The camera is positioned a little above the waist, looking down at the pants/skirt and legs, with a different pose from Close-up 1. ${WAIST_RULE}`;
       }
 
       const lookbookVariations = isMulti
         ? [
-            `Variation 1: Match the reference image's composition and people layout as closely as possible. Each of the ${models.length} replaced people holds the same pose as the original reference person they replaced. Lighting and background = same as reference.`,
-            `Variation 2: Same ${models.length}-person group, same location, same lighting, same model-to-person mapping. Natural micro-variations in each person's pose (slight head turn, different hand position) so this reads as a different take from the same shoot.`,
-            `Variation 3: Closer framing — chest-up group shot of the same ${models.length} people in the same locked scene. Same model identities and outfits.`,
-            `Variation 4: Slightly different camera angle (a few steps to the side) of the same ${models.length} people in the same scene. Same models, same outfits.`
+            `Variation 1 (FULL BODY 1): Match the reference image's people layout and camera angle as closely as possible, but framed as a full-body group shot. Each of the ${models.length} replaced people holds the same pose as the original reference person they replaced. Lighting and background = same as reference. ${FULL_BODY_RULE} This applies to ALL ${models.length} people.`,
+            `Variation 2 (FULL BODY 2): Same ${models.length}-person group, same location, same lighting, same model-to-person mapping, full-body framing from a slightly different camera angle (a few steps to the side). Natural micro-variations in each person's pose so this reads as a different take from the same shoot. ${FULL_BODY_RULE} This applies to ALL ${models.length} people.`,
+            `Variation 3 (CLOSE-UP 1): Closer framing — waist-up group shot of the same ${models.length} people in the same locked scene. Same model identities and outfits. ${WAIST_RULE} This applies to ALL ${models.length} people.`,
+            `Variation 4 (CLOSE-UP 2): Waist-up group shot from a slightly different camera angle of the same ${models.length} people in the same scene, with natural pose variations. Same models, same outfits. ${WAIST_RULE} This applies to ALL ${models.length} people.`
           ]
         : [
-          "Variation 1: Match the EXACT framing, composition, distance, and camera angle of the Reference Style Image (Image 2). Replicate the original perspective perfectly. The lighting and background MUST be 100% identical to the reference.",
-          "Variation 2: Keep the EXACT SAME lighting, shadows, and environment from Image 2, but shift the camera position to a slightly different angle (e.g., slightly from the side) to provide a new perspective of the identical scene.",
+          `Variation 1 (FULL BODY 1): Match the camera angle, composition and pose of the Reference Style Image (Image 2), framed as a full-body shot. The lighting and background MUST be 100% identical to the reference. ${FULL_BODY_RULE}`,
+          `Variation 2 (FULL BODY 2): Keep the EXACT SAME lighting, shadows, and environment from Image 2, but shift the camera position to a slightly different angle (e.g., slightly from the side) and use a natural, different pose — still a full-body shot. ${FULL_BODY_RULE}`,
           var3Desc,
           var4Desc
       ];
+      const lookbookLabels = ['전신 1', '전신 2', '클로즈업 1', '클로즈업 2'];
+      const FULL_BODY_COUNT = 2; // lookbookVariations 앞 2장이 전신
+
+      // 전신 컷은 얼굴이 작아 인물이 흐려지기 쉬우므로, 생성 후 얼굴만 참조 사진에 맞춰 한 번 더 보정한다.
+      // 보정이 실패하면 원본 전신 컷을 그대로 쓴다.
+      const faceRefGroups = isMulti && compModels
+        ? compModels.map(cm => ({ name: cm.name, images: cm.compFaces.length > 0 ? cm.compFaces : [cm.compTarget] }))
+        : [{ name: null, images: compFaceImages.length > 0 ? compFaceImages : [compTarget] }];
+
+      const refineFullBodyFace = async (baseDataUrl) => {
+          const refParts = [];
+          const refLines = [];
+          let idx = 2;
+          faceRefGroups.forEach((g, gi) => {
+              const start = idx;
+              g.images.forEach(img => { refParts.push({ inlineData: { mimeType: 'image/jpeg', data: img.split(',')[1] } }); idx++; });
+              const range = g.images.length > 1 ? `Images ${start}–${idx - 1}` : `Image ${start}`;
+              refLines.push(isMulti
+                ? `- The ${gi === 0 ? '1st from LEFT (leftmost)' : gi === 1 ? '2nd from LEFT' : '3rd from LEFT'} person in Image 1 is ${g.name}: face reference = ${range}.`
+                : `- Face reference for the person in Image 1 = ${range}.`);
+          });
+          const refineText = `
+    TASK: FACE IDENTITY RESTORATION on a finished full-body fashion lookbook photo.
+
+    Image 1 = the finished full-body photo (the BASE).
+${refLines.join('\n')}
+
+    In full-body shots the face is small and its identity has drifted. Redraw ONLY the face${isMulti ? 's' : ''} (facial features, face shape, skin tone, hairline and hairstyle) so ${isMulti ? 'each person is' : 'the person is'} unmistakably the SAME person as the face reference — same eye shape and spacing, nose bridge and tip, lip shape, jawline, chin, cheekbones and skin tone.
+
+    KEEP EVERYTHING ELSE IDENTICAL TO IMAGE 1:
+    - same framing, crop, camera angle and full-body composition (head to feet stays in frame)
+    - same pose, head angle, gaze direction and body proportions
+    - same outfit, accessories, background, lighting, shadows and color grading
+    - the face must be lit by the same scene lighting as Image 1 and blend seamlessly (no pasted look, no sharpness or color mismatch)
+    - output the full image at the same aspect ratio; do NOT zoom in on the face
+        `;
+          const { dataUrl } = await geminiGenerateImage({
+            primaryModelId: MODEL_OPTIONS.PRO,
+            fallbackModelId: null,
+            apiKey: settings.apiKey || DEFAULT_API_KEY,
+            contentsParts: [{ text: refineText }, { inlineData: { mimeType: 'image/jpeg', data: baseDataUrl.split(',')[1] } }, ...refParts],
+            aspectRatio,
+            qualityMode: settings.highRes ? 'ultra' : 'std'
+          });
+          return dataUrl;
+      };
 
       const promises = lookbookVariations.map((variationDesc, i) => {
           return new Promise(async (resolve, reject) => {
               try {
                   await delay(i * 1500); // API Rate Limit 방지를 위한 지연
                   const localParts = [...parts];
-                  localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\nCRITICAL SCENE LOCK: The lighting, shadows, and background MUST remain mathematically identical to the other variations. ONLY change the camera angle or pose. Maintain a slightly unique, natural micro-expression while STRICTLY adhering to the Three Pillars.` };
+                  localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\nFRAMING PRIORITY: For THIS variation, the framing above (full body vs. waist-up close-up) takes precedence over any "same framing distance" instruction earlier in this prompt.\nCRITICAL SCENE LOCK: The lighting, shadows, and background MUST remain mathematically identical to the other variations. ONLY change the camera angle or pose. Maintain a slightly unique, natural micro-expression while STRICTLY adhering to the Three Pillars.` };
                   
                   const { dataUrl } = await geminiGenerateImage({ 
                     primaryModelId: MODEL_OPTIONS.PRO, 
                     fallbackModelId: null, 
                     apiKey: settings.apiKey || DEFAULT_API_KEY, 
-                    contentsParts: localParts, 
-                    aspectRatio, 
+                    contentsParts: localParts,
+                    aspectRatio,
                     qualityMode: settings.highRes ? 'ultra' : 'std'
                   });
+                  if (i < FULL_BODY_COUNT) {
+                      try {
+                          resolve(await refineFullBodyFace(dataUrl));
+                      } catch (refineErr) {
+                          console.warn('[Lookbook] 전신 얼굴 보정 실패 — 원본 사용:', refineErr);
+                          resolve(dataUrl);
+                      }
+                      return;
+                  }
                   resolve(dataUrl);
               } catch (e) {
                   reject(e);
@@ -1361,7 +1425,8 @@ ${mapping}
       });
 
       const results = await Promise.allSettled(promises);
-      const successfulImages = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+      const successfulIdx = results.map((r, i) => r.status === 'fulfilled' ? i : -1).filter(i => i >= 0);
+      const successfulImages = successfulIdx.map(i => results[i].value);
 
       if (successfulImages.length === 0) {
           const error = results.find(r => r.status === 'rejected')?.reason;
@@ -1369,6 +1434,7 @@ ${mapping}
       }
 
       setGeneratedImages(successfulImages);
+      setGeneratedLabels(successfulIdx.map(i => lookbookLabels[i]));
       setCurrentImgIndex(0);
       
       if (successfulImages.length < 4) {
@@ -1504,6 +1570,9 @@ ${mapping}
             <div className="flex flex-col gap-4 animate-fade-in border-b-2 border-black pb-8 mb-2">
               <div className="flex items-center gap-2 mb-1"><CheckCircle2 className="w-5 h-5 text-black" /><span className="text-sm font-bold uppercase text-black">Generation Complete ({currentImgIndex + 1}/{generatedImages.length})</span></div>
               <div className="aspect-[3/4] border border-black bg-gray-100 relative group">
+                {generatedLabels[currentImgIndex] && (
+                  <span className="absolute top-2 left-2 z-10 bg-black text-white text-[11px] font-bold px-2 py-1">{generatedLabels[currentImgIndex]}</span>
+                )}
                 <img src={generatedImages[currentImgIndex]} className="w-full h-full object-cover cursor-pointer" onClick={() => setShowZoomModal(true)} alt="Generated" />
                 <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Maximize2 className="w-8 h-8 text-white drop-shadow-md" /></div>
                 
