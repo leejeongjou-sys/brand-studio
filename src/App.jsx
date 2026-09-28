@@ -884,6 +884,7 @@ const LookbookGenerator = ({ reference, references = [], onBack, settings, showN
   // ─── End multi-model state ───
   const [generatedImages, setGeneratedImages] = useState([]);
   const [generatedLabels, setGeneratedLabels] = useState([]); // 전신 1·2 / 클로즈업 1·2 (실패한 컷은 빠진다)
+  const [generatingKind, setGeneratingKind] = useState(null); // 'full' | 'close' | null
   const [lookbookModelKey, setLookbookModelKey] = useState(() => {
     try { return localStorage.getItem('lookbookModel') === 'pro' ? 'pro' : 'flash'; } catch { return 'flash'; }
   });
@@ -1140,7 +1141,8 @@ FORMAT:
     } catch { showNotification("수정 실패", "error"); } finally { setIsRefining(false); }
   };
 
-  const handleGenerate = async () => {
+  // kind: 'full' = 전신 2장, 'close' = 클로즈업 2장
+  const handleGenerate = async (kind) => {
     // Validate every model has a target image (in single-model mode this is just the active one)
     for (let i = 0; i < models.length; i++) {
       if (!models[i].targetImage) return showNotification(`${models[i].name}의 의상/전신 이미지를 업로드해주세요.`, 'error');
@@ -1148,6 +1150,7 @@ FORMAT:
     if (!prompt) return showNotification("프롬프트를 먼저 입력하거나 생성해주세요.", "error");
 
     setIsGenerating(true);
+    setGeneratingKind(kind);
     try {
       // Multi-model: compress every model's assets
       const compModels = isMulti ? await Promise.all(models.map(async (m) => ({
@@ -1407,10 +1410,14 @@ ${refLines.join('\n')}
           return dataUrl;
       };
 
-      const promises = lookbookVariations.map((variationDesc, i) => {
+      // 버튼별로 2장만 생성: 전신 = 0·1번, 클로즈업 = 2·3번 variation
+      const selectedIdx = kind === 'full' ? [0, 1] : [2, 3];
+
+      const promises = selectedIdx.map((i, order) => {
+          const variationDesc = lookbookVariations[i];
           return new Promise(async (resolve, reject) => {
               try {
-                  await delay(i * 1500); // API Rate Limit 방지를 위한 지연
+                  await delay(order * 1500); // API Rate Limit 방지를 위한 지연
                   const localParts = [...parts];
                   localParts[0] = { text: localParts[0].text + `\n\n[CAMERA & FRAMING (FOR THIS SPECIFIC VARIATION)]\nEnsure this generation strictly follows this camera angle and framing: [${variationDesc}].\nFRAMING PRIORITY: For THIS variation, the framing above (full body vs. waist-up close-up) takes precedence over any "same framing distance" instruction earlier in this prompt.\nCRITICAL SCENE LOCK: The lighting, shadows, and background MUST remain mathematically identical to the other variations. ONLY change the camera angle or pose. Maintain a slightly unique, natural micro-expression while STRICTLY adhering to the Three Pillars.` };
                   
@@ -1439,26 +1446,34 @@ ${refLines.join('\n')}
       });
 
       const results = await Promise.allSettled(promises);
-      const successfulIdx = results.map((r, i) => r.status === 'fulfilled' ? i : -1).filter(i => i >= 0);
-      const successfulImages = successfulIdx.map(i => results[i].value);
+      const newItems = results
+        .map((r, order) => r.status === 'fulfilled' ? { src: r.value, label: lookbookLabels[selectedIdx[order]] } : null)
+        .filter(Boolean);
 
-      if (successfulImages.length === 0) {
+      if (newItems.length === 0) {
           const error = results.find(r => r.status === 'rejected')?.reason;
           throw error || new Error("이미지 생성에 실패했습니다.");
       }
 
-      setGeneratedImages(successfulImages);
-      setGeneratedLabels(successfulIdx.map(i => lookbookLabels[i]));
-      setCurrentImgIndex(0);
-      
-      if (successfulImages.length < 4) {
-          showNotification(`4장 중 ${successfulImages.length}장만 생성되었습니다.`);
+      // 같은 종류(전신/클로즈업)의 이전 결과만 교체하고, 다른 종류 결과는 유지. 순서는 전신 → 클로즈업.
+      const kindPrefix = kind === 'full' ? '전신' : '클로즈업';
+      const kept = generatedImages
+        .map((src, i) => ({ src, label: generatedLabels[i] || '' }))
+        .filter(it => !it.label.startsWith(kindPrefix));
+      const merged = kind === 'full' ? [...newItems, ...kept] : [...kept, ...newItems];
+      setGeneratedImages(merged.map(it => it.src));
+      setGeneratedLabels(merged.map(it => it.label));
+      setCurrentImgIndex(merged.findIndex(it => it.label === newItems[0].label));
+
+      const kindName = kind === 'full' ? '전신' : '클로즈업';
+      if (newItems.length < 2) {
+          showNotification(`${kindName} 2장 중 ${newItems.length}장만 생성되었습니다.`);
       } else {
-          showNotification("4장의 화보컷이 성공적으로 생성되었습니다.");
+          showNotification(`${kindName} 2장이 성공적으로 생성되었습니다.`);
       }
       
     } catch(e) { showNotification(String(e.message || e), 'error'); }
-    finally { setIsGenerating(false); }
+    finally { setIsGenerating(false); setGeneratingKind(null); }
   };
 
   return (
@@ -1686,17 +1701,20 @@ ${refLines.join('\n')}
                 </div>
             </div>
               
-            <button onClick={handleGenerate} disabled={isGenerating || !targetImage || !prompt} className={`w-full text-white py-4 font-bold text-base uppercase mt-2 hover:opacity-90 disabled:opacity-50 flex flex-col items-center justify-center gap-1 ${generatedImages.length > 0 ? 'bg-gray-800' : 'bg-black'}`}>
-                {isGenerating ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> <span>{generatedImages.length > 0 ? '다시 생성 중 (4장)...' : '생성 중 (4장)...'}</span></>
-                ) : (
-                    generatedImages.length > 0 ? (
-                        <><div className="flex items-center gap-2"><RefreshCcw className="w-5 h-5 text-white" /> 다시 4장 생성하기 (REGENERATE)</div></>
-                    ) : (
-                        <><div className="flex items-center gap-2"><Sparkles className="w-5 h-5 text-white" /> 화보 4장 자동생성 (GENERATE)</div></>
-                    )
-                )}
-            </button>
+            <div className="flex gap-2 mt-2">
+                {[{ kind: 'full', label: '전신 2장 생성', sub: 'FULL BODY' }, { kind: 'close', label: '클로즈업 2장 생성', sub: 'CLOSE-UP' }].map(b => {
+                    const hasKind = generatedLabels.some(l => l && l.startsWith(b.kind === 'full' ? '전신' : '클로즈업'));
+                    return (
+                        <button key={b.kind} onClick={() => handleGenerate(b.kind)} disabled={isGenerating || !targetImage || !prompt} className={`flex-1 text-white py-4 font-bold text-base uppercase hover:opacity-90 disabled:opacity-50 flex flex-col items-center justify-center gap-1 ${hasKind ? 'bg-gray-800' : 'bg-black'}`}>
+                            {generatingKind === b.kind ? (
+                                <><Loader2 className="w-5 h-5 animate-spin" /> <span>{b.label.replace(' 생성', '')} 생성 중...</span></>
+                            ) : (
+                                <><div className="flex items-center gap-2">{hasKind ? <RefreshCcw className="w-5 h-5 text-white" /> : <Sparkles className="w-5 h-5 text-white" />} {hasKind ? b.label.replace('생성', '다시 생성') : b.label}</div><span className="text-[11px] text-gray-300">{b.sub}</span></>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
           </div>
           
         </div>
